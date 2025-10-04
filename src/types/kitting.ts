@@ -57,6 +57,7 @@ export interface KitProgress {
 }
 
 export interface JobProgress {
+  id?: string; // JobProgress record ID
   jobId: string;
   startTime?: string;
   endTime?: string;

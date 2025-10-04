@@ -86,6 +86,7 @@ const JobExecute: React.FC = () => {
         if (progressData && progressData.length > 0) {
           const progress = progressData[0];
           setJobProgress({
+            id: progress.id,
             jobId: progress.jobId,
             startTime: progress.startTime,
             completedKits: progress.completedKits || 0,
@@ -369,13 +370,17 @@ const JobExecute: React.FC = () => {
       const startTime = new Date().toISOString();
 
       // Create KitExecution record in database
+      if (!jobProgress.id) {
+        throw new Error('Job progress ID is missing');
+      }
+
       const kitExecutionResponse = await fetch('http://localhost:3001/api/kit-executions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          jobProgressId: jobProgress.jobId,
+          jobProgressId: jobProgress.id,
           kitNumber,
           startTime
         }),
