@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  kittrix:
+    # For production: use pre-built image from Docker Hub
+    # image: motionalysis/kittrix:latest
+
+    # For local testing: build from Dockerfile
+    build: .
+
+    container_name: kittrix-app
+
+    environment:
+      # Application settings
+      - NODE_ENV=production
+      - PORT=3000
+
+      # Database connection
+      # NOTE: 172.17.0.1 is the Docker bridge IP to access host PostgreSQL
+      # PostgreSQL 'db' container is exposed on host port 5432
+      - DATABASE_URL=postgresql://motioadmin:M0t10n4lys1s@172.17.0.1:5432/motioPGDB
+
+      # nginx-proxy automatic SSL configuration
+      - VIRTUAL_HOST=kits.digiglue.io
+      - LETSENCRYPT_HOST=kits.digiglue.io
+      - LETSENCRYPT_EMAIL=sean@motiontools.com
+
+    # Connect to existing nginx-proxy network
+    networks:
+      - motiostack_net
+
+    # Restart policy
+    restart: always
+
+    # Health monitoring
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1));"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    # Resource limits (important for 1.9GB RAM server)
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+
+# Use existing nginx-proxy network created by motiostack
+networks:
+  motiostack_net:
+    external: true
+
+# Note: No volumes needed - database is external
+# No ports exposed - nginx-proxy handles routing

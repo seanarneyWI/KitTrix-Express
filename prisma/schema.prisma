@@ -1,0 +1,247 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model KittingJob {
+  id              String   @id @default(cuid())
+  customerName    String
+  jobNumber       String   @unique
+  dueDate         DateTime
+  orderedQuantity Int
+  runLength       Int
+  customerSpec    String?
+  description     String
+  setup           Int      // seconds
+  makeReady       Int      // seconds
+  takeDown        Int      // seconds
+
+  // Calculated fields
+  expectedKitDuration Int // EKD in seconds
+  expectedJobDuration Int // EJD in seconds
+
+  // Scheduling
+  scheduledDate     DateTime?
+  scheduledStartTime String?
+
+  // Status tracking
+  status        JobStatus @default(SCHEDULED)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  routeSteps    RouteStep[]
+  jobProgress   JobProgress?
+  analytics     JobAnalytics?
+  assignments   JobAssignment[]
+
+  @@map("kitting_jobs")
+}
+
+model RouteStep {
+  id              String @id @default(cuid())
+  name            String
+  expectedSeconds Int
+  order           Int    // For maintaining step sequence
+
+  // Multimedia instruction fields
+  instructionType InstructionType @default(NONE)
+  instructionUrl  String?         // External URL for videos/images
+  instructionText String?         // Text instructions
+  autoLoop        Boolean         @default(true) // Auto-loop for videos
+
+  // Relations
+  kittingJobId    String
+  kittingJob      KittingJob @relation(fields: [kittingJobId], references: [id], onDelete: Cascade)
+
+  // Step executions during job runs
+  stepExecutions  StepExecution[]
+
+  @@map("route_steps")
+}
+
+model JobProgress {
+  id              String    @id @default(cuid())
+  jobId           String    @unique
+  kittingJob      KittingJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  // Job timing
+  startTime       DateTime?
+  endTime         DateTime?
+  actualJobDuration Int?   // seconds
+
+  // Kit tracking
+  completedKits   Int       @default(0)
+  remainingKits   Int
+  currentKitNumber Int?
+
+  // Status
+  isActive        Boolean   @default(false)
+  pausedTime      Int       @default(0) // accumulated pause time in seconds
+
+  // Work center assignment
+  workCenterId    String?
+  workCenter      WorkCenter? @relation(fields: [workCenterId], references: [id])
+  assignedWorker  String?
+
+  // Relations
+  kitExecutions   KitExecution[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("job_progress")
+}
+
+model KitExecution {
+  id              String       @id @default(cuid())
+  jobProgressId   String
+  jobProgress     JobProgress  @relation(fields: [jobProgressId], references: [id], onDelete: Cascade)
+
+  kitNumber       Int
+  startTime       DateTime
+  endTime         DateTime?
+  actualDuration  Int?         // seconds
+  completed       Boolean      @default(false)
+
+  // Relations
+  stepExecutions  StepExecution[]
+
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@map("kit_executions")
+}
+
+model StepExecution {
+  id              String       @id @default(cuid())
+  kitExecutionId  String
+  kitExecution    KitExecution @relation(fields: [kitExecutionId], references: [id], onDelete: Cascade)
+
+  routeStepId     String
+  routeStep       RouteStep    @relation(fields: [routeStepId], references: [id])
+
+  startTime       DateTime
+  endTime         DateTime?
+  actualDuration  Int?         // seconds
+  completed       Boolean      @default(false)
+
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@map("step_executions")
+}
+
+model JobAnalytics {
+  id              String     @id @default(cuid())
+  jobId           String     @unique
+  kittingJob      KittingJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  // Overall job analytics
+  totalExpectedTime     Int // seconds
+  totalActualTime       Int? // seconds
+  efficiencyPercent     Float? // actual vs expected
+
+  // Kit analytics
+  avgKitTime            Float? // average actual kit time
+  fastestKitTime        Int? // seconds
+  slowestKitTime        Int? // seconds
+
+  // Step analytics
+  stepAnalytics         Json? // detailed step-by-step analytics
+
+  // Variance tracking
+  timeVariance          Float? // standard deviation of kit times
+  consistencyScore      Float? // how consistent the worker was
+
+  // Business metrics
+  onTimeCompletion      Boolean? // completed by due date
+  qualityIssues         Int      @default(0) // count of reported issues
+
+  lastCalculated        DateTime @default(now())
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@map("job_analytics")
+}
+
+enum JobStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  PAUSED
+  CANCELLED
+}
+
+enum UserRole {
+  WORKER
+  SUPERVISOR
+  ADMIN
+}
+
+enum InstructionType {
+  NONE
+  VIDEO
+  IMAGE
+  TEXT
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  role         UserRole @default(WORKER)
+  workCenterId String?
+  workCenter   WorkCenter? @relation(fields: [workCenterId], references: [id])
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  assignedJobs JobAssignment[]
+
+  @@map("users")
+}
+
+model WorkCenter {
+  id          String @id @default(cuid())
+  name        String // "Line A", "Pack Station 2", etc.
+  description String?
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  users       User[]
+  jobProgress JobProgress[]
+
+  @@map("work_centers")
+}
+
+model JobAssignment {
+  id         String   @id @default(cuid())
+  jobId      String
+  userId     String
+  assignedAt DateTime @default(now())
+  assignedBy String   // Admin/Supervisor who made assignment
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  job        KittingJob @relation(fields: [jobId], references: [id])
+  user       User       @relation(fields: [userId], references: [id])
+
+  @@unique([jobId, userId]) // Prevent duplicate assignments
+  @@map("job_assignments")
+}
