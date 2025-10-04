@@ -8,10 +8,18 @@ interface KittingJob {
   orderedQuantity: number;
   description: string;
   expectedJobDuration: number;
+  expectedKitDuration: number;
   status: string;
   jobProgress?: {
+    id: string;
     completedKits: number;
     currentKitNumber: number;
+    kitExecutions?: Array<{
+      id: string;
+      kitNumber: number;
+      actualDuration: number;
+      completed: boolean;
+    }>;
   };
 }
 
@@ -43,6 +51,28 @@ const Admin: React.FC = () => {
       return `${hours}h ${minutes}m`;
     }
     return `${minutes}m`;
+  };
+
+  const calculatePerformanceStatus = (job: KittingJob): 'AHEAD' | 'ON_TIME' | 'BEHIND' | null => {
+    if (!job.jobProgress || !job.jobProgress.kitExecutions || job.jobProgress.kitExecutions.length === 0) {
+      return null;
+    }
+
+    // Get the most recent completed kit
+    const completedKits = job.jobProgress.kitExecutions.filter(k => k.completed && k.actualDuration);
+    if (completedKits.length === 0) return null;
+
+    const lastKit = completedKits[completedKits.length - 1];
+    const expectedDuration = job.expectedKitDuration;
+    const actualDuration = lastKit.actualDuration;
+
+    if (expectedDuration === 0) return null;
+
+    const variancePercentage = Math.round(((actualDuration - expectedDuration) / expectedDuration) * 100);
+
+    if (variancePercentage > 10) return 'BEHIND';
+    if (variancePercentage < -10) return 'AHEAD';
+    return 'ON_TIME';
   };
 
   useEffect(() => {
@@ -245,7 +275,7 @@ const Admin: React.FC = () => {
                           <p className="text-sm text-gray-500">
                             Due: {new Date(job.dueDate).toLocaleString()}
                           </p>
-                          <div className="flex gap-4 mt-2 text-sm">
+                          <div className="flex gap-4 mt-2 text-sm flex-wrap">
                             <span>Quantity: {job.orderedQuantity}</span>
                             <span>Status: <span className={`capitalize font-medium px-2 py-1 rounded-full text-xs ${
                               job.status === 'IN_PROGRESS' ? 'bg-green-100 text-green-800' :
@@ -255,6 +285,16 @@ const Admin: React.FC = () => {
                               'bg-gray-100 text-gray-800'
                             }`}>{job.status}</span></span>
                             <span>Duration: {formatDuration(job.expectedJobDuration)}</span>
+                            {(() => {
+                              const performance = calculatePerformanceStatus(job);
+                              return performance ? (
+                                <span>Performance: <span className={`font-medium px-2 py-1 rounded-full text-xs ${
+                                  performance === 'AHEAD' ? 'bg-green-100 text-green-800' :
+                                  performance === 'BEHIND' ? 'bg-red-100 text-red-800' :
+                                  'bg-blue-100 text-blue-800'
+                                }`}>{performance.replace('_', ' ')}</span></span>
+                              ) : null;
+                            })()}
                           </div>
 
                           {/* Progress Bar for IN_PROGRESS and PAUSED jobs */}

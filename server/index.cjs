@@ -63,7 +63,13 @@ app.get('/api/kitting-jobs', async (req, res) => {
         routeSteps: {
           orderBy: { order: 'asc' }
         },
-        jobProgress: true,
+        jobProgress: {
+          include: {
+            kitExecutions: {
+              orderBy: { kitNumber: 'asc' }
+            }
+          }
+        },
         analytics: true
       },
       orderBy: { createdAt: 'desc' }
