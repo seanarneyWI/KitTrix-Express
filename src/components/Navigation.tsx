@@ -94,9 +94,9 @@ const Navigation: React.FC = () => {
     <nav className="bg-white shadow-md border-b border-gray-200">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
-          <div className="flex items-center space-x-1">
+          <div className="flex items-center space-x-2">
             <div className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">
-              KitTrix
+              Kitrix
             </div>
             <span className="px-2 py-0.5 text-xs font-semibold bg-green-100 text-green-800 rounded-full">
               v1.0
