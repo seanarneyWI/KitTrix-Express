@@ -271,11 +271,13 @@ const WeeklyCalendar: React.FC<WeeklyCalendarProps> = ({
                           }}
                           onClick={(e) => {
                             e.stopPropagation();
-                            // For kitting jobs, don't open navigate on click - use right-click context menu instead
-                            if (event.type !== 'kitting-job') {
-                              if (onNavigateToDay) {
-                                onNavigateToDay(event.date);
-                              }
+                            // Single click does nothing - use double-click or right-click
+                          }}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            // Double-click navigates to daily view for any event
+                            if (onNavigateToDay) {
+                              onNavigateToDay(event.date);
                             }
                           }}
                           onContextMenu={(e) => handleEventContextMenu(e, event)}

@@ -224,6 +224,7 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
                         key={event.id}
                         event={event}
                         onEditEvent={onEditEvent}
+                        onNavigateToDay={onNavigateToDay}
                         onAssignJob={onAssignJob}
                         onUnassignJob={onUnassignJob}
                         onChangeStatus={onChangeStatus}
@@ -263,11 +264,12 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
 const DraggableEvent: React.FC<{
   event: Event;
   onEditEvent: (event: Event) => void;
+  onNavigateToDay?: (date: string) => void;
   onAssignJob?: (jobId: string, userId: string) => void;
   onUnassignJob?: (assignmentId: string) => void;
   onChangeStatus?: (jobId: string, status: string) => void;
   onStartJob?: (jobId: string) => void;
-}> = ({ event, onEditEvent, onAssignJob, onUnassignJob, onChangeStatus, onStartJob }) => {
+}> = ({ event, onEditEvent, onNavigateToDay, onAssignJob, onUnassignJob, onChangeStatus, onStartJob }) => {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -333,9 +335,13 @@ const DraggableEvent: React.FC<{
         }}
         onClick={(e) => {
           e.stopPropagation();
-          // For kitting jobs, don't open edit modal on click - use right-click context menu instead
-          if (event.type !== 'kitting-job') {
-            onEditEvent(event);
+          // Single click does nothing - use double-click or right-click
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          // Double-click navigates to daily view for any event
+          if (onNavigateToDay) {
+            onNavigateToDay(event.date);
           }
         }}
         onContextMenu={handleContextMenu}
