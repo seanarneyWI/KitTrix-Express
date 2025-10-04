@@ -98,6 +98,9 @@ const Navigation: React.FC = () => {
             <div className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">
               KitTrix
             </div>
+            <span className="px-2 py-0.5 text-xs font-semibold bg-green-100 text-green-800 rounded-full">
+              v1.0
+            </span>
             {session && (
               <div className="ml-4 px-3 py-1 bg-gray-100 rounded-full text-sm">
                 <span className="font-medium">{session.user.name}</span>
