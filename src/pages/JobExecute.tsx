@@ -409,7 +409,9 @@ const JobExecute: React.FC = () => {
       setTimerState(prev => ({
         ...prev,
         kitStartTime: Date.now(),
-        stepStartTime: Date.now()
+        stepStartTime: Date.now(),
+        isRunning: true,
+        isPaused: false
       }));
 
       setStepCompletionSounds(new Set());

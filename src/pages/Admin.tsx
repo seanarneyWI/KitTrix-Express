@@ -277,13 +277,13 @@ const Admin: React.FC = () => {
                           </p>
                           <div className="flex gap-4 mt-2 text-sm flex-wrap">
                             <span>Quantity: {job.orderedQuantity}</span>
-                            <span>Status: <span className={`capitalize font-medium px-2 py-1 rounded-full text-xs ${
+                            <span>Status: <span className={`font-medium px-2 py-1 rounded-full text-xs ${
                               job.status === 'IN_PROGRESS' ? 'bg-green-100 text-green-800' :
                               job.status === 'PAUSED' ? 'bg-yellow-100 text-yellow-800' :
                               job.status === 'COMPLETED' ? 'bg-blue-100 text-blue-800' :
                               job.status === 'CANCELLED' ? 'bg-red-100 text-red-800' :
                               'bg-gray-100 text-gray-800'
-                            }`}>{job.status}</span></span>
+                            }`}>{job.status.replace(/_/g, ' ')}</span></span>
                             <span>Duration: {formatDuration(job.expectedJobDuration)}</span>
                             {(() => {
                               const performance = calculatePerformanceStatus(job);
