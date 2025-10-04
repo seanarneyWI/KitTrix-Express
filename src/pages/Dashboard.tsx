@@ -9,28 +9,7 @@ import { KittingJob } from '../types/kitting';
 import { formatDuration } from '../utils/kittingCalculations';
 
 const Dashboard: React.FC = () => {
-  const [events, setEvents] = useState<Event[]>([
-    {
-      id: '1',
-      title: 'Team Meeting',
-      date: '2025-01-06',
-      startTime: '09:00',
-      endTime: '10:00',
-      description: 'Weekly team sync',
-      color: 'bg-blue-500',
-      type: 'event'
-    },
-    {
-      id: '2',
-      title: 'Lunch Break',
-      date: '2025-01-06',
-      startTime: '12:00',
-      endTime: '13:00',
-      description: 'Lunch with colleagues',
-      color: 'bg-green-500',
-      type: 'event'
-    },
-  ]);
+  const [events, setEvents] = useState<Event[]>([]);
 
   const [kittingJobs, setKittingJobs] = useState<KittingJob[]>([]);
   const [viewMode, setViewMode] = useState<'all' | 'events' | 'kitting-jobs'>('all');

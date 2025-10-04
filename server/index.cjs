@@ -4,6 +4,8 @@ const { PrismaClient } = require('@prisma/client');
 const path = require('path');
 require('dotenv').config();
 
+console.log('🔍 DATABASE_URL:', process.env.DATABASE_URL);
+
 const app = express();
 const prisma = new PrismaClient();
 
@@ -208,7 +210,7 @@ app.delete('/api/job-progress/:jobId', async (req, res) => {
 // Users API
 app.get('/api/users', async (req, res) => {
   try {
-    const users = await prisma.users.findMany({
+    const users = await prisma.user.findMany({
       where: { isActive: true },
       orderBy: [
         { role: 'asc' },
@@ -220,6 +222,46 @@ app.get('/api/users', async (req, res) => {
   } catch (error) {
     console.error('Error fetching users:', error);
     res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+// Companies API
+app.get('/api/companies', async (req, res) => {
+  try {
+    const { search } = req.query;
+    console.log('Companies API called with search:', search);
+
+    // Test raw query first
+    const rawTest = await prisma.$queryRaw`SELECT COUNT(*) FROM companies`;
+    console.log('Raw query test:', rawTest);
+
+    let where = {};
+    if (search) {
+      where.companyName = {
+        contains: search,
+        mode: 'insensitive'
+      };
+    }
+
+    console.log('Query where:', JSON.stringify(where));
+
+    const companies = await prisma.company.findMany({
+      where,
+      select: {
+        id: true,
+        companyName: true
+      },
+      orderBy: { companyName: 'asc' },
+      take: 50 // Limit results for autocomplete
+    });
+
+    console.log('Found companies:', companies.length);
+    res.json(companies);
+  } catch (error) {
+    console.error('Error fetching companies:', error);
+    console.error('Error details:', error.message);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ error: 'Failed to fetch companies', details: error.message });
   }
 });
 

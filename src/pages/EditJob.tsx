@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import CustomerAutocomplete from '../components/CustomerAutocomplete';
 
 interface RouteStep {
   id?: string;
@@ -14,6 +15,7 @@ interface RouteStep {
 
 interface JobFormData {
   customerName: string;
+  companyId?: number;
   jobNumber: string;
   description: string;
   customerSpec: string;
@@ -158,27 +160,60 @@ const EditJob: React.FC = () => {
       const url = isNewJob ? 'http://localhost:3001/api/kitting-jobs' : `http://localhost:3001/api/kitting-jobs/${jobId}`;
       const method = isNewJob ? 'POST' : 'PATCH';
 
+      // Prepare job data - exclude routeSteps for updates
+      const { routeSteps, ...jobData } = formData;
+      const jobPayload = {
+        ...jobData,
+        dueDate: new Date(formData.dueDate).toISOString(),
+        scheduledDate: formData.scheduledDate ? new Date(formData.scheduledDate).toISOString() : null,
+        scheduledStartTime: formData.scheduledStartTime || null,
+      };
+
+      // For create, include routeSteps in the main payload
+      if (isNewJob) {
+        jobPayload.routeSteps = routeSteps;
+      }
+
       const response = await fetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          ...formData,
-          dueDate: new Date(formData.dueDate).toISOString(),
-          scheduledDate: formData.scheduledDate ? new Date(formData.scheduledDate).toISOString() : null,
-        }),
+        body: JSON.stringify(jobPayload),
       });
 
-      if (response.ok) {
-        // Dispatch event to notify other components that jobs have been updated
-        window.dispatchEvent(new CustomEvent('jobsUpdated'));
-        alert(isNewJob ? 'Job created successfully!' : 'Job updated successfully!');
-        navigate('/admin');
-      } else {
+      if (!response.ok) {
         const errorData = await response.json();
         setError(errorData.error || 'Failed to save job');
+        return;
       }
+
+      // For updates, separately update route steps using bulk-update endpoint
+      if (!isNewJob && routeSteps && routeSteps.length > 0) {
+        const routeStepsPayload = {
+          jobId,
+          routeSteps: routeSteps.map(({ id, kittingJobId, ...step }) => step)
+        };
+
+        const routeStepsResponse = await fetch('http://localhost:3001/api/route-steps/bulk-update', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(routeStepsPayload),
+        });
+
+        if (!routeStepsResponse.ok) {
+          const errorData = await routeStepsResponse.json();
+          setError(errorData.error || 'Failed to update route steps');
+          return;
+        }
+      }
+
+      // Dispatch event to notify other components that jobs have been updated
+      window.dispatchEvent(new CustomEvent('jobsUpdated'));
+      alert(isNewJob ? 'Job created successfully!' : 'Job updated successfully!');
+      navigate('/admin');
     } catch (err) {
       setError('Error saving job');
     } finally {
@@ -231,16 +266,17 @@ const EditJob: React.FC = () => {
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Basic Job Information */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Customer Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.customerName}
-                  onChange={(e) => handleInputChange('customerName', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+              <CustomerAutocomplete
+                value={formData.customerName}
+                onChange={(value, companyId) => {
+                  setFormData(prev => ({
+                    ...prev,
+                    customerName: value,
+                    companyId: companyId
+                  }));
+                }}
+                required
+              />
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Job Number *</label>
@@ -347,7 +383,7 @@ const EditJob: React.FC = () => {
             {/* Time Estimates */}
             <div className="border-t pt-6">
               <h3 className="text-lg font-semibold text-gray-800 mb-4">Time Estimates (seconds)</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Setup Time</label>
                   <input
@@ -380,41 +416,26 @@ const EditJob: React.FC = () => {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
+              </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Expected Kit Duration</label>
-                  <input
-                    type="text"
-                    readOnly
-                    value={`${formData.expectedKitDuration}s (${formatDuration(formData.expectedKitDuration)})`}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Expected Job Duration</label>
-                  <input
-                    type="text"
-                    readOnly
-                    value={`${formData.expectedJobDuration}s (${formatDuration(formData.expectedJobDuration)})`}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
-                  />
+              {/* Calculated Durations - Read Only */}
+              <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="font-medium text-gray-700">Expected Kit Duration:</span>
+                    <span className="ml-2 text-gray-900">{formData.expectedKitDuration}s ({formatDuration(formData.expectedKitDuration)})</span>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700">Expected Job Duration:</span>
+                    <span className="ml-2 text-gray-900">{formData.expectedJobDuration}s ({formatDuration(formData.expectedJobDuration)})</span>
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Route Steps */}
             <div className="border-t pt-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold text-gray-800">Route Steps</h3>
-                <button
-                  type="button"
-                  onClick={addRouteStep}
-                  className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg"
-                >
-                  Add Step
-                </button>
-              </div>
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">Route Steps</h3>
 
               {formData.routeSteps.map((step, index) => (
                 <div key={index} className="border border-gray-200 rounded-lg p-4 mb-4">
@@ -513,6 +534,15 @@ const EditJob: React.FC = () => {
                   No route steps defined. Click "Add Step" to create the first step.
                 </div>
               )}
+
+              {/* Add Step Button */}
+              <button
+                type="button"
+                onClick={addRouteStep}
+                className="w-full bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg mt-4"
+              >
+                + Add Step
+              </button>
             </div>
 
             {/* Submit Buttons */}
