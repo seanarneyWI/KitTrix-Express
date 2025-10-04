@@ -329,6 +329,116 @@ app.post('/api/analytics', async (req, res) => {
   }
 });
 
+// Kit Execution API
+app.post('/api/kit-executions', async (req, res) => {
+  try {
+    const { jobProgressId, kitNumber, startTime } = req.body;
+
+    const kitExecution = await prisma.kitExecution.create({
+      data: {
+        jobProgressId,
+        kitNumber,
+        startTime: new Date(startTime),
+        completed: false
+      }
+    });
+
+    res.json(kitExecution);
+  } catch (error) {
+    console.error('Error creating kit execution:', error);
+    res.status(500).json({ error: 'Failed to create kit execution', details: error.message });
+  }
+});
+
+app.patch('/api/kit-executions/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { endTime, actualDuration, completed } = req.body;
+
+    const kitExecution = await prisma.kitExecution.update({
+      where: { id },
+      data: {
+        endTime: endTime ? new Date(endTime) : undefined,
+        actualDuration,
+        completed
+      }
+    });
+
+    res.json(kitExecution);
+  } catch (error) {
+    console.error('Error updating kit execution:', error);
+    res.status(500).json({ error: 'Failed to update kit execution', details: error.message });
+  }
+});
+
+app.get('/api/kit-executions', async (req, res) => {
+  try {
+    const { jobProgressId } = req.query;
+
+    let where = {};
+    if (jobProgressId) where.jobProgressId = jobProgressId;
+
+    const executions = await prisma.kitExecution.findMany({
+      where,
+      include: {
+        stepExecutions: {
+          include: {
+            routeStep: true
+          }
+        }
+      },
+      orderBy: { kitNumber: 'asc' }
+    });
+
+    res.json(executions);
+  } catch (error) {
+    console.error('Error fetching kit executions:', error);
+    res.status(500).json({ error: 'Failed to fetch kit executions' });
+  }
+});
+
+// Step Execution API
+app.post('/api/step-executions', async (req, res) => {
+  try {
+    const { kitExecutionId, routeStepId, startTime } = req.body;
+
+    const stepExecution = await prisma.stepExecution.create({
+      data: {
+        kitExecutionId,
+        routeStepId,
+        startTime: new Date(startTime),
+        completed: false
+      }
+    });
+
+    res.json(stepExecution);
+  } catch (error) {
+    console.error('Error creating step execution:', error);
+    res.status(500).json({ error: 'Failed to create step execution', details: error.message });
+  }
+});
+
+app.patch('/api/step-executions/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { endTime, actualDuration, completed } = req.body;
+
+    const stepExecution = await prisma.stepExecution.update({
+      where: { id },
+      data: {
+        endTime: endTime ? new Date(endTime) : undefined,
+        actualDuration,
+        completed
+      }
+    });
+
+    res.json(stepExecution);
+  } catch (error) {
+    console.error('Error updating step execution:', error);
+    res.status(500).json({ error: 'Failed to update step execution', details: error.message });
+  }
+});
+
 // Serve React app for all other routes (only in production)
 if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res) => {

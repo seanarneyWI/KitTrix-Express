@@ -1,15 +1,58 @@
 # Project Context
-Last Updated: October 4, 2025
+Last Updated: October 4, 2025 - Evening Session (Docker Deployment Complete)
 
 ## Current Focus
-- KitTrix-Express successfully deployed at https://kits.digiglue.io
-- Application running on ports 5173 (Vite frontend) + 3001 (Express API)
-- Recent work: Customer autocomplete, job creation fixes, calendar improvements
-- Progress: PRODUCTION READY - Active deployment complete
+- KitTrix-Express successfully deployed at https://kits.digiglue.io via Docker
+- Application running as Docker container on port 3000 (single Express server)
+- Docker nginx-proxy handles HTTPS/SSL and routing
+- Customer autocomplete feature fully operational in production
+- Progress: PRODUCTION READY - Docker-based deployment complete and stable
 
 ## Recent Changes
 
-### Latest Session (October 4, 2025)
+### Latest Session (October 4, 2025) - Docker Deployment & Customer Autocomplete Fix
+
+#### Customer Autocomplete Deployment Issue - RESOLVED
+**Problem**: Customer autocomplete worked locally but returned HTML instead of JSON on production
+- API endpoint `/api/companies` serving HTML instead of JSON data
+- Frontend unable to fetch customer names from database
+
+**Complex Root Cause Discovery Process**:
+1. **Initial hypothesis**: Nginx pointing to wrong port (5173 vs 3001)
+   - Updated nginx config to proxy /api → port 3001
+   - Result: Didn't fix the issue
+2. **Second discovery**: TWO nginx instances running simultaneously
+   - System nginx on port 8080 (using /etc/nginx/sites-available configs)
+   - Docker nginx-proxy container on ports 80/443 (auto-configured via docker-gen)
+3. **ACTUAL ROOT CAUSE**: Old Docker container `kittrix-app` still running
+   - Docker nginx-proxy was routing https://kits.digiglue.io → old container on port 3000
+   - System nginx config changes were irrelevant (traffic never reached it)
+   - Old container served outdated code without customer autocomplete feature
+   - Container was from previous failed deployment attempt
+
+**Final Solution**: Proper Docker deployment with nginx-proxy integration
+- Build KitTrix-Express as Docker container with multi-stage Dockerfile
+- Use VIRTUAL_HOST environment variable for automatic nginx-proxy routing
+- Express server serves both static Vite files AND API endpoints on port 3000
+- Docker nginx-proxy automatically handles HTTPS/SSL via Let's Encrypt
+- Single container, single port, clean architecture
+
+#### Docker Deployment Implementation
+- **Dockerfile**: Multi-stage build process
+  - Stage 1: Build Vite frontend with `npm run build`
+  - Stage 2: Production runtime with only production dependencies
+  - Copies built dist/ folder and server code
+  - Runs as non-root user (expressjs:nodejs)
+  - Exposes port 3000
+- **docker-compose.yml**: Production configuration
+  - Environment: NODE_ENV=production, PORT=3000
+  - Database: DATABASE_URL pointing to host PostgreSQL via 172.17.0.1
+  - Nginx-proxy integration: VIRTUAL_HOST=kits.digiglue.io, LETSENCRYPT_HOST=kits.digiglue.io
+  - Network: motiostack_net (shared with other services)
+  - Resource limits: 256M max, 128M reserved (for 1.9GB RAM server)
+  - Healthcheck: /api/health endpoint every 30s
+
+#### Previous Work This Session
 - **Customer Autocomplete**: Integrated Company table for customer selection
   - Added CustomerAutocomplete component with debounced search
   - Connected to shared Company table in motioPGDB
@@ -23,10 +66,6 @@ Last Updated: October 4, 2025
 - **Database Connectivity**: Fixed environment variable override issue
   - Discovered DATABASE_URL shell variable was overriding .env file
   - Solution: unset DATABASE_URL before running npm run dev
-- **Production Deployment**: Successfully deployed to kits.digiglue.io
-  - Nginx reverse proxy configured
-  - Application accessible via HTTPS
-  - Running on ports 5173 (frontend) + 3001 (backend)
 
 ### Previous Work
 - **Repository Structure**: Discovered and resolved critical repository confusion
@@ -38,29 +77,65 @@ Last Updated: October 4, 2025
   - Fresh clone from `seanarneyWI/KitTrix-Express` now on server
 
 ## Next Steps
-1. Monitor production application performance and stability
-2. Potential enhancements:
+1. Monitor Docker container performance and stability at https://kits.digiglue.io
+2. Verify resource usage stays within limits (256M max memory)
+3. Potential enhancements:
    - Additional job management features
    - Enhanced reporting and analytics
    - Integration with other ERP systems in motioPGDB
-3. Database schema evolution (coordinate with other apps using motioPGDB)
+4. Database schema evolution (coordinate with other apps using motioPGDB)
 
 ## Open Issues
 - None currently blocking production operation
-- Future consideration: Docker containerization for easier deployment (currently running via npm/nvm)
+- Docker deployment successfully implemented and running
 
 ## Architecture Notes
-- **KitTrix-Express Structure**: Express backend + Vite frontend (NOT Next.js)
-  - Backend: Express server with API endpoints
-  - Frontend: Vite-based React application
-  - Build: Separate client and server build processes
-- **Repository History**: Two separate KitTrix implementations exist
+
+### Production Architecture (Docker-based)
+- **Deployment Method**: Docker container with nginx-proxy integration
+- **Single Server Architecture**: Express serves both static files and API on port 3000
+  - Express serves built Vite static files from `/dist` directory
+  - Same Express instance handles API endpoints at `/api/*`
+  - No separate frontend/backend ports in production
+- **Reverse Proxy**: Docker nginx-proxy container
+  - Automatically detects containers via VIRTUAL_HOST environment variable
+  - Handles HTTPS/SSL via Let's Encrypt companion container
+  - Routes https://kits.digiglue.io → kittrix-express container port 3000
+- **Multi-stage Dockerfile**:
+  - Stage 1: Build Vite frontend (`npm run build`)
+  - Stage 2: Production runtime with minimal dependencies
+  - Final image runs as non-root user (expressjs:nodejs)
+
+### Development Architecture (Local)
+- **Separate Servers**: Vite dev server (5173) + Express API (3001)
+- **Vite Proxy**: Routes `/api/*` requests to Express backend
+- **Hot Reload**: Enabled for both frontend and backend
+- **Database Access**: SSH tunnel to production PostgreSQL on port 5433
+
+### KitTrix-Express Structure
+- **Stack**: Express backend + Vite frontend (NOT Next.js)
+- **Backend**: Express server with API endpoints
+- **Frontend**: Vite-based React application with TypeScript
+- **Database**: Prisma ORM with PostgreSQL
+
+### Repository History
+Two separate KitTrix implementations exist:
   - `Motionalysis/KitTrix`: Next.js version (created Sep 29, 2025)
   - `seanarneyWI/KitTrix-Express`: Express + Vite version (created Oct 4, 2025)
-- **Server Environment**: Digital Ocean droplet at 137.184.182.28
-  - Memory: 1.9GB RAM with existing production services
-  - Nginx-proxy for SSL termination and reverse proxy
-  - Shared PostgreSQL database with ERP data
+
+### Server Environment
+- **Digital Ocean Droplet**: 137.184.182.28
+- **Memory**: 1.9GB RAM with existing production services
+- **Docker Network**: motiostack_net (shared with Node-RED, Grafana, pgAdmin)
+- **Database**: Shared PostgreSQL database with ERP data
+- **SSL**: Let's Encrypt via letsencrypt-nginx-proxy-companion
+
+### Docker nginx-proxy Architecture
+- **nginx-proxy container**: Auto-generates nginx configuration using docker-gen
+- **Monitors Docker events**: Detects containers with VIRTUAL_HOST environment variable
+- **System nginx NOT used**: Configs in /etc/nginx/sites-available are ignored by nginx-proxy
+- **SSL Management**: Automatic via letsencrypt-nginx-proxy-companion container
+- **Shared Network**: All containers must be on motiostack_net Docker network
 
 ## 🚨 CRITICAL DATABASE SAFETY PROTOCOL
 
@@ -171,14 +246,127 @@ model KittingJob {
 ## Production Deployment Process
 
 ### Current Deployment at kits.digiglue.io
-**Status**: LIVE and operational
+**Status**: LIVE and operational via Docker
 **Architecture**:
-- Frontend (Vite): Running on port 5173
-- Backend (Express): Running on port 3001
-- Reverse Proxy: Nginx at kits.digiglue.io pointing to port 5173
-- Database: Direct connection to localhost:5432 (motioPGDB)
+- Single Docker container running Express server on port 3000
+- Express serves both built Vite static files AND API endpoints
+- Docker nginx-proxy routes https://kits.digiglue.io → container
+- Database: PostgreSQL via 172.17.0.1:5432 (Docker host network)
 
-### Deployment Command Sequence
+### Deployment Command (FINAL - ONE COMMAND)
+```bash
+ssh sean@137.184.182.28 "cd ~/KitTrix-Express && git pull && docker-compose up -d --build"
+```
+
+This single command:
+1. SSHs to Digital Ocean server
+2. Navigates to project directory
+3. Pulls latest code from GitHub
+4. Builds Docker image from Dockerfile
+5. Starts/restarts container with docker-compose
+6. nginx-proxy automatically detects and routes traffic
+
+### docker-compose.yml Configuration
+```yaml
+services:
+  kittrix-express:
+    build: .
+    container_name: kittrix-express
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgresql://motioadmin:M0t10n4lys1s@172.17.0.1:5432/motioPGDB
+      - VIRTUAL_HOST=kits.digiglue.io
+      - LETSENCRYPT_HOST=kits.digiglue.io
+      - LETSENCRYPT_EMAIL=your@email.com
+    networks:
+      - motiostack_net
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  motiostack_net:
+    external: true
+```
+
+### Dockerfile (Multi-stage Build)
+```dockerfile
+# Stage 1: Build frontend
+FROM node:18-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# Stage 2: Production runtime
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+COPY --from=builder /app/dist ./dist
+COPY server ./server
+USER node
+EXPOSE 3000
+CMD ["node", "server/index.js"]
+```
+
+### CRITICAL Deployment Rules
+1. **ALWAYS use Docker deployment**: `docker-compose up -d --build`
+2. **NEVER run `prisma db push` on server**: Risk of dropping shared tables
+3. **Database connection**: Uses 172.17.0.1 (Docker host) to reach PostgreSQL
+4. **VIRTUAL_HOST required**: nginx-proxy uses this to route traffic
+5. **Check old containers**: `docker ps -a` to find orphaned containers
+
+### Verification Steps
+```bash
+# Check container is running
+ssh sean@137.184.182.28 "docker ps | grep kittrix-express"
+
+# Check nginx-proxy routing
+ssh sean@137.184.182.28 "docker exec reverse-proxy cat /etc/nginx/conf.d/default.conf | grep kits.digiglue.io"
+
+# View container logs
+ssh sean@137.184.182.28 "docker logs kittrix-express --tail 50"
+
+# Test application
+curl -I https://kits.digiglue.io
+curl https://kits.digiglue.io/api/companies?search=test
+```
+
+### Troubleshooting Commands
+```bash
+# Check for old/conflicting containers
+docker ps -a | grep kittrix
+
+# Remove old container if found
+docker rm -f <container-id>
+
+# Rebuild and restart
+docker-compose down
+docker-compose up -d --build
+
+# Check resource usage
+docker stats kittrix-express
+
+# View nginx-proxy logs
+docker logs reverse-proxy --tail 100
+```
+
+### Rollback Procedure
+If deployment fails:
 ```bash
 # 1. SSH to server
 ssh sean@137.184.182.28
@@ -186,65 +374,15 @@ ssh sean@137.184.182.28
 # 2. Navigate to project
 cd ~/KitTrix-Express
 
-# 3. Pull latest changes
-git pull origin main
-
-# 4. Install dependencies (if package.json changed)
-source ~/.nvm/nvm.sh
-npm install
-
-# 5. Kill existing processes
-pkill -f "vite"
-pkill -f "node.*server"
-
-# 6. Start backend in background
-nohup npm run server > logs/server.log 2>&1 &
-
-# 7. Start frontend in background
-nohup npm run client > logs/client.log 2>&1 &
-
-# 8. Verify processes are running
-ps aux | grep -E "vite|node.*server"
-
-# 9. Test application
-curl -I https://kits.digiglue.io
-```
-
-### CRITICAL Deployment Rules
-1. **ALWAYS source nvm before npm commands**: `source ~/.nvm/nvm.sh`
-2. **NEVER run `prisma db push` on server**: Risk of dropping shared tables
-3. **Database URL on server**: `postgresql://motioadmin:M0t10n4lys1s@localhost:5432/motioPGDB`
-4. **Check logs if issues**: `tail -f ~/KitTrix-Express/logs/*.log`
-5. **Nginx config**: Located at `/etc/nginx/sites-enabled/kits.digiglue.io`
-
-### Environment Configuration
-**Server .env file** (`/home/sean/KitTrix-Express/.env`):
-```
-DATABASE_URL="postgresql://motioadmin:M0t10n4lys1s@localhost:5432/motioPGDB"
-PORT=3001
-NODE_ENV=production
-```
-
-### Nginx Reverse Proxy Configuration
-Points `kits.digiglue.io` to `http://localhost:5173` (Vite frontend)
-Frontend proxies API requests to backend on port 3001
-
-### Rollback Procedure
-If deployment fails:
-```bash
-# 1. Kill new processes
-pkill -f "vite"
-pkill -f "node.*server"
-
-# 2. Check git log for last working commit
+# 3. Check git log for last working commit
 git log --oneline -10
 
-# 3. Revert to last working version
+# 4. Revert to last working version
 git checkout <last-working-commit>
 
-# 4. Restart application
-npm run server &
-npm run client &
+# 5. Rebuild and restart container
+docker-compose down
+docker-compose up -d --build
 ```
 
 ## Gotchas & Learnings
@@ -264,7 +402,47 @@ npm run client &
   - Wrong: `prisma.companies.findMany()` (will error)
   - Even though table name is plural, model name should be singular
 
-### Deployment Lessons
+### Docker Deployment Lessons (CRITICAL)
+
+#### nginx-proxy Architecture Understanding
+- **Docker nginx-proxy auto-configuration**: nginx-proxy uses docker-gen to automatically generate nginx configs
+  - Monitors Docker events to detect containers with VIRTUAL_HOST environment variable
+  - Generates routing rules dynamically based on running containers
+  - System nginx configs in `/etc/nginx/sites-available` are IGNORED by nginx-proxy
+  - SSL certificates managed automatically via letsencrypt-nginx-proxy-companion
+  - All containers MUST be on same Docker network (motiostack_net)
+
+#### Why Multiple Deployment Attempts Failed
+1. **First attempt**: Tried running without Docker (npm run dev)
+   - nginx-proxy couldn't route to non-containerized app
+   - No VIRTUAL_HOST environment variable to detect
+2. **Second attempt**: Updated system nginx config to point to port 3001
+   - System nginx config irrelevant - nginx-proxy ignores it
+   - nginx-proxy only reads from docker-gen templates
+3. **Third attempt**: Started Express on port 3001
+   - nginx-proxy still routing to OLD container `kittrix-app` on port 3000
+   - Old container from previous failed deployment was still running
+   - Customer autocomplete API returned HTML because old code didn't have the feature
+4. **Final solution**: Proper Docker deployment with VIRTUAL_HOST environment variable
+   - nginx-proxy detected new container and updated routing
+   - Single Express server serves both static files and API
+   - Clean architecture with one container, one port
+
+#### Critical Discovery Process
+- **Always check `docker ps -a`** to see ALL containers (including stopped)
+  - Old/orphaned containers can hijack domain routing if they have VIRTUAL_HOST set
+  - Use `docker rm -f <container-id>` to remove conflicting containers
+- **Verify nginx-proxy routing**: `docker exec reverse-proxy cat /etc/nginx/conf.d/default.conf`
+  - Shows actual routing configuration nginx-proxy is using
+  - Reveals which container is receiving traffic for each domain
+- **Two nginx instances running simultaneously**:
+  - System nginx on port 8080 (uses /etc/nginx/sites-available configs)
+  - Docker nginx-proxy on ports 80/443 (uses docker-gen auto-configuration)
+  - Only nginx-proxy matters for Docker-based deployments
+
+### Old Deployment Method Lessons (DEPRECATED)
+The following lessons are from the old npm-based deployment method. Now using Docker exclusively.
+
 - **NVM Requirement on Server**: Node is installed via nvm, not system package
   - Must run `source ~/.nvm/nvm.sh` before any npm commands
   - Otherwise commands fail with "npm: command not found"
@@ -299,30 +477,58 @@ npm run client &
   - Check remote URL: `git remote -v` to confirm correct repository
 
 ### Technical Debt Identified
-- **No Production Process Manager**: Currently using nohup instead of PM2 or systemd
-  - Risk: Processes may die without automatic restart
-  - Future: Consider implementing PM2 for process management
-- **No Docker Containerization**: Running directly via npm/nvm
-  - Makes deployment less portable
-  - Future: Consider Dockerizing for consistency
-- **Hardcoded Credentials**: Database password in .env files
-  - Should use environment-specific secrets management
-  - Future: Implement proper secrets handling
+- **Docker Deployment Implemented**: ✅ RESOLVED
+  - Previously: Running directly via npm/nvm without process management
+  - Now: Full Docker containerization with docker-compose
+  - Benefits: Automatic restarts, resource limits, healthchecks
+- **Hardcoded Credentials**: Database password in docker-compose.yml
+  - Should use Docker secrets or environment-specific secrets management
+  - Future: Implement proper secrets handling with Docker secrets
 
 ## Failed Approaches
 
-### Deployment Attempts
-- **Docker Containerization**: Attempted but abandoned in favor of direct npm deployment
-  - Issue: Build script mismatches and configuration complexity
-  - Current approach (nohup + npm) works reliably
-  - Docker may be revisited when stability proven with current approach
+### Customer Autocomplete Deployment Debugging (Multiple Failed Attempts)
+
+**Problem Statement**: Customer autocomplete API returning HTML instead of JSON on production
+
+**Failed Attempt #1: Port Configuration**
+- **Hypothesis**: Nginx pointing to wrong port (Vite 5173 instead of Express 3001)
+- **Action**: Updated /etc/nginx/sites-available/kits.digiglue.io to proxy /api to port 3001
+- **Result**: FAILED - Still receiving HTML responses
+- **Why it failed**: System nginx config was irrelevant; nginx-proxy was handling routing
+
+**Failed Attempt #2: Direct Express Deployment**
+- **Hypothesis**: Need to run Express directly on server without Vite
+- **Action**: Started Express server on port 3001 via SSH
+- **Result**: FAILED - Same HTML response from API
+- **Why it failed**: nginx-proxy was still routing to old Docker container, not the new Express process
+
+**Failed Attempt #3: System Nginx Configuration**
+- **Hypothesis**: Need to configure system nginx to route properly
+- **Action**: Modified nginx configs, reloaded nginx service
+- **Result**: FAILED - No change in behavior
+- **Why it failed**: nginx-proxy (Docker) handles all routing on ports 80/443; system nginx is on port 8080 and not in the routing path
+
+**Root Cause Discovered**: Old Docker container `kittrix-app` still running
+- Container was from previous failed deployment attempt
+- Had VIRTUAL_HOST=kits.digiglue.io set
+- nginx-proxy was routing all traffic to this old container
+- Old container didn't have customer autocomplete feature, served outdated HTML
+
+**Final Solution**: Remove old container and deploy properly with Docker
+- `docker rm -f kittrix-app` to remove conflicting container
+- `docker-compose up -d --build` to deploy new container with correct code
+- nginx-proxy automatically detected new container and updated routing
+- Customer autocomplete API now returns JSON correctly
+
+### Early Deployment Attempts
 - **Initial Docker Build**: Failed because wrong codebase (Next.js) was on server
   - The .dockerignore excluded package-lock.json causing npm ci to fail
   - Resolution: Cleaned directory and cloned correct Express repository
 - **First Build Attempt**: Failed at frontend build due to missing tsconfig.json
   - The build script `tsc && vite build` expects TypeScript configuration
   - But Express version doesn't have tsconfig.json
-  - Resolution: Switched to development mode deployment
+  - Resolution: Updated build script to use `vite build` only
 
 ### Database Connection Issues
 - **Using `prisma db push` in development**: Nearly catastrophic
@@ -340,3 +546,36 @@ npm run client &
   - Schema changes must be coordinated across all applications
   - Consider implementing database change management process
   - Potential future: Separate databases per application with shared data API
+
+## Session Summary - Key Achievements
+
+### Major Milestone: Production Docker Deployment
+Successfully transitioned from npm-based deployment to Docker containerization:
+- **Single-command deployment**: `ssh sean@137.184.182.28 "cd ~/KitTrix-Express && git pull && docker-compose up -d --build"`
+- **Automatic routing**: nginx-proxy detects container via VIRTUAL_HOST environment variable
+- **Automatic SSL**: Let's Encrypt certificates managed by letsencrypt-nginx-proxy-companion
+- **Resource management**: Memory limits (256M max) and healthchecks configured
+- **Clean architecture**: Single Express server serves both static files and API on port 3000
+
+### Critical Problem Solved: Customer Autocomplete
+Root cause analysis revealed complex infrastructure issue:
+- **Symptom**: API returning HTML instead of JSON on production
+- **Root cause**: Old Docker container from previous deployment still running
+- **Impact**: nginx-proxy routing to outdated container without customer autocomplete feature
+- **Solution**: Removed old container, deployed proper Docker setup
+- **Learning**: Always check `docker ps -a` for orphaned containers when debugging routing issues
+
+### Infrastructure Understanding Achieved
+Comprehensive understanding of Digital Ocean server architecture:
+- **nginx-proxy uses docker-gen**: Auto-generates configs from Docker events
+- **System nginx irrelevant for Docker apps**: Only nginx-proxy matters for containerized services
+- **VIRTUAL_HOST is key**: This environment variable tells nginx-proxy where to route traffic
+- **Shared Docker network**: All services must be on motiostack_net network
+- **Two nginx instances**: System nginx (port 8080) and Docker nginx-proxy (ports 80/443) coexist
+
+### Next Session Recommendations
+1. Monitor Docker container health and resource usage
+2. Consider implementing Docker secrets for database credentials
+3. Watch for any SSL certificate renewal issues
+4. Verify application performance under load
+5. All future deployments use: `ssh sean@137.184.182.28 "cd ~/KitTrix-Express && git pull && docker-compose up -d --build"`

@@ -29,6 +29,7 @@ const JobExecute: React.FC = () => {
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentKitExecutionId, setCurrentKitExecutionId] = useState<string | null>(null);
 
   // Comprehensive timing analytics state
   const [timingAnalytics, setTimingAnalytics] = useState({
@@ -195,16 +196,23 @@ const JobExecute: React.FC = () => {
     const expectedJobDuration = selectedJob.expectedJobDuration;
     const jobVariance = calculateVariancePercentage(actualJobDuration, expectedJobDuration);
 
-    let performanceStatus: 'AHEAD' | 'ON_TRACK' | 'BEHIND' = 'ON_TRACK';
-    if (jobVariance > 15) performanceStatus = 'BEHIND';
-    else if (jobVariance < -15) performanceStatus = 'AHEAD';
+    // Calculate current kit performance (if kit is in progress)
+    let currentKitPerformance: 'AHEAD' | 'ON_TRACK' | 'BEHIND' = 'ON_TRACK';
+    if (timerState.kitStartTime && selectedJob.expectedKitDuration > 0) {
+      const currentKitActual = Math.floor((Date.now() - timerState.kitStartTime) / 1000);
+      const currentKitExpected = selectedJob.expectedKitDuration;
+      const currentKitVariance = calculateVariancePercentage(currentKitActual, currentKitExpected);
+
+      if (currentKitVariance > 10) currentKitPerformance = 'BEHIND';
+      else if (currentKitVariance < -10) currentKitPerformance = 'AHEAD';
+    }
 
     const updatedAnalytics = {
       ...timingAnalytics,
       actualJobDuration,
       expectedJobDuration,
       jobVariancePercentage: jobVariance,
-      overallPerformanceStatus: performanceStatus
+      overallPerformanceStatus: currentKitPerformance // Use current kit performance instead of total job
     };
 
     setTimingAnalytics(updatedAnalytics);
@@ -357,11 +365,34 @@ const JobExecute: React.FC = () => {
 
     try {
       console.log('🔧 Starting new kit:', jobProgress.completedKits + 1);
+      const kitNumber = jobProgress.completedKits + 1;
+      const startTime = new Date().toISOString();
+
+      // Create KitExecution record in database
+      const kitExecutionResponse = await fetch('http://localhost:3001/api/kit-executions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          jobProgressId: jobProgress.jobId,
+          kitNumber,
+          startTime
+        }),
+      });
+
+      if (!kitExecutionResponse.ok) {
+        throw new Error('Failed to create kit execution record');
+      }
+
+      const kitExecution = await kitExecutionResponse.json();
+      setCurrentKitExecutionId(kitExecution.id);
+
       const newKit = {
-        kitNumber: jobProgress.completedKits + 1,
-        startTime: new Date().toISOString(),
+        kitNumber,
+        startTime,
         currentStepIndex: 0,
-        stepStartTime: new Date().toISOString(),
+        stepStartTime: startTime,
         completed: false
       };
 
@@ -377,21 +408,62 @@ const JobExecute: React.FC = () => {
       }));
 
       setStepCompletionSounds(new Set());
+      console.log('✅ Kit execution created:', kitExecution.id);
     } catch (error) {
       console.error('Error starting kit:', error);
+      alert('Failed to start kit. Please try again.');
     }
   };
 
   const completeKit = async () => {
-    if (!selectedJob || !jobProgress || !jobProgress.currentKit) return;
+    if (!selectedJob || !jobProgress || !jobProgress.currentKit || !currentKitExecutionId) return;
 
     try {
       console.log('🔧 Completing kit:', jobProgress.currentKit.kitNumber);
+      const endTime = new Date().toISOString();
+      const actualDuration = timerState.kitStartTime ?
+        Math.floor((Date.now() - timerState.kitStartTime) / 1000) : 0;
+
+      const expectedDuration = selectedJob.expectedKitDuration;
+      const varianceSeconds = actualDuration - expectedDuration;
+      const variancePercentage = expectedDuration > 0
+        ? Math.round((varianceSeconds / expectedDuration) * 100)
+        : 0;
+
+      // Determine performance status for this kit
+      let kitPerformance: 'AHEAD' | 'ON_TIME' | 'BEHIND' = 'ON_TIME';
+      if (variancePercentage > 10) kitPerformance = 'BEHIND';
+      else if (variancePercentage < -10) kitPerformance = 'AHEAD';
+
+      console.log(`📊 Kit ${jobProgress.currentKit.kitNumber} Performance:`, {
+        expected: expectedDuration,
+        actual: actualDuration,
+        variance: varianceSeconds,
+        variancePercent: variancePercentage,
+        status: kitPerformance
+      });
+
+      // Update KitExecution record with completion data
+      const kitExecutionUpdateResponse = await fetch(`http://localhost:3001/api/kit-executions/${currentKitExecutionId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          endTime,
+          actualDuration,
+          completed: true
+        }),
+      });
+
+      if (!kitExecutionUpdateResponse.ok) {
+        throw new Error('Failed to update kit execution record');
+      }
+
       const completedKit = {
         ...jobProgress.currentKit,
-        endTime: new Date().toISOString(),
-        actualDuration: timerState.kitStartTime ?
-          Math.floor((Date.now() - timerState.kitStartTime) / 1000) : 0,
+        endTime,
+        actualDuration,
         completed: true
       };
 
@@ -422,6 +494,22 @@ const JobExecute: React.FC = () => {
 
       // Dispatch event to notify other components that jobs have been updated
       window.dispatchEvent(new CustomEvent('jobsUpdated'));
+
+      // Update timing analytics with completed kit data
+      setTimingAnalytics(prev => ({
+        ...prev,
+        completedKitsTimings: [
+          ...prev.completedKitsTimings,
+          {
+            kitNumber: jobProgress.currentKit!.kitNumber,
+            expectedDuration,
+            actualDuration,
+            variancePercentage,
+            stepTimings: [] // Will be populated with step executions later
+          }
+        ],
+        overallPerformanceStatus: kitPerformance
+      }));
 
       // Update local state
       setJobProgress(prev => prev ? {
