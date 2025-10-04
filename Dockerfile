@@ -20,7 +20,7 @@ COPY . .
 RUN npx prisma generate
 
 # Build Vite frontend
-RUN npm run client:build
+RUN npm run build
 
 # =====================================
 # Stage 2: Production Runtime
