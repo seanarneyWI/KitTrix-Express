@@ -4,6 +4,28 @@
 // Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
+// 🚨 CRITICAL: SHARED DATABASE WARNING 🚨
+// This schema connects to motioPGDB which is a SHARED ERP database used by:
+// - KitTrix-Express (this app)
+// - Estimating-app (quoting system)
+// - Other ERP systems
+//
+// TABLES NOT MANAGED BY THIS SCHEMA (DO NOT DROP):
+// - board_adders, board_grades, estimates, flute_types, liner_materials
+// - medium_types, metrics, migrations, motioevents, shipping_zones, vendors
+// - customers_backup, and other ERP tables
+//
+// SHARED TABLES (Read-only for KitTrix):
+// - companies: Used by multiple apps, KitTrix reads via foreign key only
+//
+// KITTRIX-OWNED TABLES (Safe to manage):
+// - kitting_jobs, route_steps, job_progress, kit_executions, step_executions
+// - job_analytics, users, work_centers, job_assignments
+//
+// ⚠️ NEVER USE: prisma db push (will try to drop existing tables!)
+// ✅ SAFE TO USE: prisma generate, prisma migrate dev (with caution)
+// ✅ FOR SCHEMA CHANGES: Write manual SQL migrations, coordinate with other apps
+
 generator client {
   provider = "prisma-client-js"
 }
