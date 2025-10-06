@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import CustomerAutocomplete from '../components/CustomerAutocomplete';
+import { apiUrl } from '../config/api';
 
 interface RouteStep {
   id?: string;
@@ -69,7 +70,7 @@ const EditJob: React.FC = () => {
   const fetchJobData = async (id: string) => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:3001/api/kitting-jobs/${id}`);
+      const response = await fetch(apiUrl(`/api/kitting-jobs/${id}`));
       if (response.ok) {
         const job = await response.json();
         setFormData({
@@ -157,7 +158,7 @@ const EditJob: React.FC = () => {
     setError(null);
 
     try {
-      const url = isNewJob ? 'http://localhost:3001/api/kitting-jobs' : `http://localhost:3001/api/kitting-jobs/${jobId}`;
+      const url = isNewJob ? apiUrl('/api/kitting-jobs') : apiUrl(`/api/kitting-jobs/${jobId}`);
       const method = isNewJob ? 'POST' : 'PATCH';
 
       // Prepare job data - exclude routeSteps for updates
@@ -195,7 +196,7 @@ const EditJob: React.FC = () => {
           routeSteps: routeSteps.map(({ id, kittingJobId, ...step }) => step)
         };
 
-        const routeStepsResponse = await fetch('http://localhost:3001/api/route-steps/bulk-update', {
+        const routeStepsResponse = await fetch(apiUrl('/api/route-steps/bulk-update'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

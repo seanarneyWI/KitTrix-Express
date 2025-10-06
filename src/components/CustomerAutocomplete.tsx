@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { apiUrl } from '../config/api';
 
 interface Company {
   id: number;
@@ -32,7 +33,7 @@ const CustomerAutocomplete: React.FC<CustomerAutocompleteProps> = ({
 
       setLoading(true);
       try {
-        const response = await axios.get(`/api/companies?search=${encodeURIComponent(value)}`);
+        const response = await axios.get(apiUrl(`/api/companies?search=${encodeURIComponent(value)}`));
         setCompanies(response.data);
         setShowDropdown(true);
       } catch (error) {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { apiUrl } from '../config/api';
 
 interface KittingJob {
   id: string;
@@ -118,7 +119,7 @@ const Admin: React.FC = () => {
 
   const fetchExistingJobs = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/kitting-jobs');
+      const response = await fetch(apiUrl('/api/kitting-jobs'));
       if (response.ok) {
         const data = await response.json();
         setExistingJobs(data || []);
@@ -162,7 +163,7 @@ const Admin: React.FC = () => {
     if (!confirm('Are you sure you want to delete this job?')) return;
 
     try {
-      const response = await fetch(`http://localhost:3001/api/kitting-jobs/${jobId}`, {
+      const response = await fetch(apiUrl(`/api/kitting-jobs/${jobId}`), {
         method: 'DELETE'
       });
 

@@ -1,16 +1,123 @@
 # Project Context
-Last Updated: October 4, 2025 - Evening Session (Docker Deployment Complete)
+Last Updated: October 4, 2025 - Late Night Session (Performance Tracking & Bug Fixes Complete)
 
 ## Current Focus
-- KitTrix-Express successfully deployed at https://kits.digiglue.io via Docker
+- Kitrix (rebranded from KitTrix) successfully deployed at https://kits.digiglue.io via Docker
+- Comprehensive kit-level performance tracking implemented with database persistence
+- Performance badges showing real-time status (AHEAD/ON_TIME/BEHIND) on job cards
+- Multiple critical production bugs fixed and deployed
 - Application running as Docker container on port 3000 (single Express server)
-- Docker nginx-proxy handles HTTPS/SSL and routing
-- Customer autocomplete feature fully operational in production
-- Progress: PRODUCTION READY - Docker-based deployment complete and stable
+- Progress: PRODUCTION READY - All features operational and stable
 
 ## Recent Changes
 
-### Latest Session (October 4, 2025) - Docker Deployment & Customer Autocomplete Fix
+### Latest Session (October 4, 2025 - Late Night) - Performance Tracking & Critical Bug Fixes
+
+#### Performance Tracking Implementation
+**Goal**: Track kit-level performance metrics to show if jobs are ahead/on-time/behind schedule
+
+**Database Schema Changes**:
+- Created `KitExecution` table to track individual kit timing
+  - Fields: id, jobProgressId, kitNumber, startTime, endTime, expectedDuration, actualDuration
+  - Tracks each kit independently within a job
+- Created `StepExecution` table to track step-level timing
+  - Fields: id, kitExecutionId, stepNumber, startTime, endTime, expectedDuration, actualDuration
+  - Enables future detailed step-by-step analysis
+- Migration: `/Users/motioseanmbp/Documents/GitHub/CursorTest/KitTrix-Express/prisma/migrations/20251005_add_kit_execution_tracking`
+
+**Performance Calculation Logic**:
+- Kit-level timing instead of total job time (more accurate)
+- Expected duration from route step configuration
+- Performance percentage: ((actual - expected) / expected) * 100
+- Thresholds:
+  - AHEAD: < -10% (finishing faster than expected)
+  - ON_TIME: -10% to +10% (within acceptable range)
+  - BEHIND: > +10% (taking longer than expected)
+
+**UI Implementation**:
+- Added performance badges to job cards in Manage Jobs list
+  - Green "AHEAD" badge: finishing faster than expected
+  - Blue "ON_TIME" badge: on schedule
+  - Red "BEHIND" badge: behind schedule
+- Badge displays when job is in progress and at least one kit completed
+- Shows cumulative performance across all completed kits
+
+**API Changes**:
+- `POST /api/jobs/:id/start`: Creates initial KitExecution record
+- `POST /api/jobs/:id/start-kit`: Creates KitExecution with kit number
+- `POST /api/jobs/:id/complete-kit`: Updates KitExecution with end time, calculates performance
+- `GET /api/jobs`: Returns jobs with performance metrics included
+
+**Files Modified**:
+- `/Users/motioseanmbp/Documents/GitHub/CursorTest/KitTrix-Express/prisma/schema.prisma`: Added KitExecution and StepExecution models
+- `/Users/motioseanmbp/Documents/GitHub/CursorTest/KitTrix-Express/server/routes/jobs.js`: Added kit execution tracking logic
+- `/Users/motioseanmbp/Documents/GitHub/CursorTest/KitTrix-Express/src/pages/ManageJobs.tsx`: Added performance badge display
+
+#### Critical Bug Fixes
+
+**Bug #1: "Failed to start kit" Error**
+- **Symptom**: Kit start button failed with database error
+- **Root Cause**: JobProgress.id field was missing from API response
+- **Impact**: Could not create KitExecution records (foreign key constraint)
+- **Fix**: Added `id` field to JobProgress selection in API query
+- **File**: `/Users/motioseanmbp/Documents/GitHub/CursorTest/KitTrix-Express/server/routes/jobs.js:48`
+
+**Bug #2: Job Status Display**
+- **Symptom**: Status showing as "in_progress" with underscore
+- **Root Cause**: Database enum values stored with underscores
+- **Impact**: Unprofessional UI appearance
+- **Fix**: Added status formatting helper: `IN_PROGRESS → In Progress`, `NOT_STARTED → Not Started`
+- **File**: `/Users/motioseanmbp/Documents/GitHub/CursorTest/KitTrix-Express/src/pages/ManageJobs.tsx:12-20`
+
+**Bug #3: Paused Job Resume Functionality**
+- **Symptom**: Resuming paused job didn't restart timer
+- **Root Cause**: Resume API called wrong endpoint and timer state not updated
+- **Impact**: Users couldn't continue working on paused jobs
+- **Fix**:
+  - Resume calls `/api/jobs/:id/resume` (not start-kit)
+  - Timer state properly updated on resume
+  - Added separate "Resume" vs "Start Kit" button logic
+- **Files**:
+  - `/Users/motioseanmbp/Documents/GitHub/CursorTest/KitTrix-Express/src/pages/ActiveJob.tsx:230-245`
+  - `/Users/motioseanmbp/Documents/GitHub/CursorTest/KitTrix-Express/server/routes/jobs.js:180-191`
+
+**Bug #4: Customer Autocomplete on Production**
+- **Symptom**: Customer search worked locally but not on production
+- **Root Cause**: Old Docker container still running with outdated code
+- **Fix**: Removed old container, deployed proper Docker setup
+- **Status**: RESOLVED (from previous session, verified working in this session)
+
+#### Branding Updates
+**Changed**: "KitTrix" → "Kitrix" throughout application
+- Updated page titles, navigation, footer, loading states
+- Maintained consistency across all UI components
+- Files affected: Multiple components in `/Users/motioseanmbp/Documents/GitHub/CursorTest/KitTrix-Express/src/`
+
+**Note**: Repository name remains "KitTrix-Express" for historical consistency
+
+#### Production Deployment
+**Deployment Command Used**:
+```bash
+ssh sean@137.184.182.28 "cd ~/KitTrix-Express && git pull && docker-compose up -d --build"
+```
+
+**Deployment Steps**:
+1. Committed all changes to GitHub (performance tracking, bug fixes, branding)
+2. Pushed to main branch
+3. SSH'd to Digital Ocean server
+4. Pulled latest code
+5. Rebuilt and restarted Docker container
+6. Verified all features working at https://kits.digiglue.io
+
+**Verification Results**:
+- Customer autocomplete: Working
+- Job creation: Working
+- Performance tracking: Working (badges visible on job cards)
+- Timer resume: Working (fixed paused job issue)
+- Status display: Clean formatting (no underscores)
+- Branding: Consistently "Kitrix" across all pages
+
+### Previous Session (October 4, 2025 - Evening) - Docker Deployment & Customer Autocomplete Fix
 
 #### Customer Autocomplete Deployment Issue - RESOLVED
 **Problem**: Customer autocomplete worked locally but returned HTML instead of JSON on production
@@ -77,17 +184,23 @@ Last Updated: October 4, 2025 - Evening Session (Docker Deployment Complete)
   - Fresh clone from `seanarneyWI/KitTrix-Express` now on server
 
 ## Next Steps
-1. Monitor Docker container performance and stability at https://kits.digiglue.io
-2. Verify resource usage stays within limits (256M max memory)
-3. Potential enhancements:
-   - Additional job management features
-   - Enhanced reporting and analytics
-   - Integration with other ERP systems in motioPGDB
+1. Monitor performance tracking accuracy with real production usage
+   - Validate thresholds (-10% to +10%) are appropriate
+   - Collect feedback on badge visibility and usefulness
+2. Future performance enhancements:
+   - Step-level performance tracking (database already supports it)
+   - Performance history charts and trends
+   - Predictive completion time based on current performance
+3. Potential features:
+   - Export performance reports for analysis
+   - Alert notifications when jobs fall behind schedule
+   - Performance comparison across different operators/shifts
 4. Database schema evolution (coordinate with other apps using motioPGDB)
 
 ## Open Issues
 - None currently blocking production operation
-- Docker deployment successfully implemented and running
+- All critical bugs resolved and deployed to production
+- Performance tracking feature operational and stable
 
 ## Architecture Notes
 
@@ -112,11 +225,13 @@ Last Updated: October 4, 2025 - Evening Session (Docker Deployment Complete)
 - **Hot Reload**: Enabled for both frontend and backend
 - **Database Access**: SSH tunnel to production PostgreSQL on port 5433
 
-### KitTrix-Express Structure
+### Kitrix-Express Structure
 - **Stack**: Express backend + Vite frontend (NOT Next.js)
 - **Backend**: Express server with API endpoints
 - **Frontend**: Vite-based React application with TypeScript
 - **Database**: Prisma ORM with PostgreSQL
+- **Performance Tracking**: Kit-level execution tracking with real-time status badges
+- **Branding**: Application name is "Kitrix" (repository remains "KitTrix-Express")
 
 ### Repository History
 Two separate KitTrix implementations exist:
@@ -153,11 +268,13 @@ The motioPGDB database is a **SHARED PRODUCTION DATABASE** used by multiple appl
 5. **ALWAYS check what tables exist** before making schema changes
 
 ### Database Schema Management Strategy
-**KitTrix-Owned Tables** (safe to manage):
+**Kitrix-Owned Tables** (safe to manage):
 - kitting_jobs
 - route_steps
 - job_progress
-- (any future KitTrix-specific tables)
+- kit_execution (NEW - tracks individual kit timing)
+- step_execution (NEW - tracks step-level timing)
+- (any future Kitrix-specific tables)
 
 **Shared Tables** (READ ONLY - do not manage):
 - companies (shared customer database)
@@ -387,6 +504,51 @@ docker-compose up -d --build
 
 ## Gotchas & Learnings
 
+### Performance Tracking Implementation Lessons
+
+**Kit-Level Timing Architecture**:
+- **Why kit-level instead of job-level**: More granular and accurate performance metrics
+  - Jobs can have varying numbers of kits (10-1000+)
+  - Operators can work at different speeds for different kits
+  - Kit-level data enables detailed performance analysis
+- **Database Design**: Separate KitExecution and StepExecution tables
+  - KitExecution: One record per kit completed
+  - StepExecution: One record per step within each kit (future feature)
+  - Both track expected vs actual duration
+- **Performance Calculation**: Simple percentage-based approach
+  - Formula: `((actualDuration - expectedDuration) / expectedDuration) * 100`
+  - Positive percentage = behind schedule
+  - Negative percentage = ahead of schedule
+  - Thresholds chosen for practical usefulness (-10% to +10% is "on time")
+
+**Critical Bug: Missing JobProgress.id Field**:
+- **Symptom**: "Failed to start kit" error when clicking Start Kit button
+- **Root Cause**: API query selected all JobProgress fields EXCEPT id
+  - KitExecution foreign key requires jobProgressId
+  - Cannot create KitExecution without valid jobProgressId
+- **Discovery Process**: Checked Prisma query, found id was excluded
+- **Fix**: Added `id: true` to JobProgress select statement
+- **Lesson**: Always include primary key fields in API responses, even if not displayed in UI
+
+**Timer State Management with Paused Jobs**:
+- **Problem**: Resume button called wrong endpoint and didn't update timer
+- **Root Cause**: Confusion between "resume" and "start-kit" actions
+  - Resume = continue existing kit after pause
+  - Start-kit = begin a new kit
+- **Solution**: Separate button logic based on job state
+  - If paused: Show "Resume" button → calls /resume endpoint
+  - If not paused: Show "Start Kit" button → calls /start-kit endpoint
+- **Timer Synchronization**: Resume must recalculate elapsed time from database timestamps
+
+**Status Display Formatting**:
+- **Database Enum Values**: Stored as `IN_PROGRESS`, `NOT_STARTED`, `COMPLETED`, `PAUSED`
+- **UI Display**: Need to convert to readable format
+- **Solution**: Helper function to format status strings
+  - `IN_PROGRESS` → `In Progress`
+  - `NOT_STARTED` → `Not Started`
+  - Simple regex replace: underscores to spaces, capitalize words
+- **Applied**: Both in job cards (Manage Jobs) and active job view
+
 ### Database Management Lessons
 - **Shared Database Discovery**: motioPGDB is used by multiple ERP applications
   - KitTrix, Estimating-app, and other systems all share this database
@@ -547,9 +709,61 @@ The following lessons are from the old npm-based deployment method. Now using Do
   - Consider implementing database change management process
   - Potential future: Separate databases per application with shared data API
 
-## Session Summary - Key Achievements
+## Session Summaries
 
-### Major Milestone: Production Docker Deployment
+### Latest Session (October 4, 2025 - Late Night): Performance Tracking & Bug Fixes
+
+**Major Achievements**:
+1. **Comprehensive Performance Tracking System**
+   - Implemented kit-level execution tracking with database persistence
+   - Created KitExecution and StepExecution tables via Prisma migration
+   - Performance calculation based on expected vs actual duration per kit
+   - Real-time performance badges on job cards (AHEAD/ON_TIME/BEHIND)
+   - Performance thresholds: <-10% ahead, -10% to +10% on time, >+10% behind
+
+2. **Critical Production Bug Fixes**
+   - Fixed "Failed to start kit" error (missing JobProgress.id field)
+   - Fixed job status display (removed underscores, proper capitalization)
+   - Fixed paused job resume functionality (timer state synchronization)
+   - Verified customer autocomplete working on production
+
+3. **Branding Updates**
+   - Rebranded from "KitTrix" to "Kitrix" across entire application
+   - Updated all page titles, navigation, footer, loading states
+   - Maintained repository name as "KitTrix-Express" for historical consistency
+
+4. **Production Deployment**
+   - Successfully deployed all changes to https://kits.digiglue.io
+   - Verified all features operational in production environment
+   - Docker container running stable with all new features
+
+**Technical Implementation Details**:
+- Performance tracking uses kit-level timing for accuracy
+- Database schema evolution: added kit_execution and step_execution tables
+- API endpoints updated to support kit execution tracking
+- UI components enhanced with real-time performance feedback
+- All changes deployed via Docker: `ssh sean@137.184.182.28 "cd ~/KitTrix-Express && git pull && docker-compose up -d --build"`
+
+**Files Modified**:
+- Database: `/prisma/schema.prisma` (KitExecution, StepExecution models)
+- Backend: `/server/routes/jobs.js` (kit execution tracking logic)
+- Frontend: `/src/pages/ManageJobs.tsx` (performance badges)
+- Frontend: `/src/pages/ActiveJob.tsx` (resume functionality)
+- Multiple UI components: Branding updates
+
+**Impact**:
+- Operators can now see real-time performance feedback
+- Management can identify jobs running behind schedule
+- Foundation established for future performance analytics
+- All critical bugs preventing production use resolved
+
+**Next Session Priorities**:
+- Monitor performance tracking accuracy with real usage
+- Gather user feedback on performance thresholds
+- Consider implementing performance history/trends
+- Potential step-level performance tracking (database ready)
+
+### Previous Session (October 4, 2025 - Evening): Production Docker Deployment
 Successfully transitioned from npm-based deployment to Docker containerization:
 - **Single-command deployment**: `ssh sean@137.184.182.28 "cd ~/KitTrix-Express && git pull && docker-compose up -d --build"`
 - **Automatic routing**: nginx-proxy detects container via VIRTUAL_HOST environment variable

@@ -9,6 +9,7 @@ import {
   calculateProgress
 } from '../utils/kittingCalculations';
 import InstructionViewer from '../components/InstructionViewer';
+import { apiUrl } from '../config/api';
 
 const JobExecute: React.FC = () => {
   console.log('🔧 JobExecute component started');
@@ -57,7 +58,7 @@ const JobExecute: React.FC = () => {
     console.log('🔧 fetchJobData started for jobId:', jobId);
     try {
       console.log('🔧 Fetching job details for jobId:', jobId);
-      const jobResponse = await fetch(`http://localhost:3001/api/kitting-jobs/${jobId}`);
+      const jobResponse = await fetch(apiUrl(`/api/kitting-jobs/${jobId}`));
       console.log('🔧 Job response status:', jobResponse.status);
       if (jobResponse.ok) {
         const jobData = await jobResponse.json();
@@ -77,7 +78,7 @@ const JobExecute: React.FC = () => {
     console.log('🔧 fetchJobProgress started for jobId:', jobId);
     try {
       console.log('🔧 Fetching job progress from API');
-      const response = await fetch(`http://localhost:3001/api/job-progress?jobId=${jobId}`);
+      const response = await fetch(apiUrl(`/api/job-progress?jobId=${jobId}`));
 
       if (response.ok) {
         const progressData = await response.json();
@@ -220,7 +221,7 @@ const JobExecute: React.FC = () => {
 
     // Store analytics data for reporting and alerts
     try {
-      await fetch('http://localhost:3001/api/analytics', {
+      await fetch(apiUrl('/api/analytics'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -287,7 +288,7 @@ const JobExecute: React.FC = () => {
       console.log('🔧 Starting job:', selectedJob.id);
 
       // Update job status to IN_PROGRESS
-      const jobUpdateResponse = await fetch(`http://localhost:3001/api/kitting-jobs/${selectedJob.id}`, {
+      const jobUpdateResponse = await fetch(apiUrl(`/api/kitting-jobs/${selectedJob.id}`), {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -311,7 +312,7 @@ const JobExecute: React.FC = () => {
         isActive: true
       };
 
-      const progressResponse = await fetch('http://localhost:3001/api/job-progress', {
+      const progressResponse = await fetch(apiUrl('/api/job-progress'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -374,7 +375,7 @@ const JobExecute: React.FC = () => {
         throw new Error('Job progress ID is missing');
       }
 
-      const kitExecutionResponse = await fetch('http://localhost:3001/api/kit-executions', {
+      const kitExecutionResponse = await fetch(apiUrl('/api/kit-executions'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -451,7 +452,7 @@ const JobExecute: React.FC = () => {
       });
 
       // Update KitExecution record with completion data
-      const kitExecutionUpdateResponse = await fetch(`http://localhost:3001/api/kit-executions/${currentKitExecutionId}`, {
+      const kitExecutionUpdateResponse = await fetch(apiUrl(`/api/kit-executions/${currentKitExecutionId}`), {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -487,7 +488,7 @@ const JobExecute: React.FC = () => {
         endTime: newRemainingKits > 0 ? null : new Date().toISOString()
       };
 
-      const progressResponse = await fetch('http://localhost:3001/api/job-progress', {
+      const progressResponse = await fetch(apiUrl('/api/job-progress'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -531,7 +532,7 @@ const JobExecute: React.FC = () => {
         setTimeout(() => startNewKit(), 100);
       } else {
         // Job completed - update job status
-        const jobUpdateResponse = await fetch(`http://localhost:3001/api/kitting-jobs/${selectedJob.id}`, {
+        const jobUpdateResponse = await fetch(apiUrl(`/api/kitting-jobs/${selectedJob.id}`), {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',

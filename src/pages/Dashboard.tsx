@@ -7,6 +7,7 @@ import FloatingActionButton from '../components/FloatingActionButton';
 import { Event } from '../types/event';
 import { KittingJob } from '../types/kitting';
 import { formatDuration } from '../utils/kittingCalculations';
+import { apiUrl } from '../config/api';
 
 const Dashboard: React.FC = () => {
   const [events, setEvents] = useState<Event[]>([]);
@@ -59,7 +60,7 @@ const Dashboard: React.FC = () => {
   const fetchKittingJobs = async () => {
     try {
       console.log('Fetching kitting jobs...');
-      const response = await fetch('http://localhost:3001/api/kitting-jobs');
+      const response = await fetch(apiUrl('/api/kitting-jobs'));
       if (response.ok) {
         const data = await response.json();
         console.log('Fetched kitting jobs:', data.length || 0);

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { KittingJob } from '../types/kitting';
+import { apiUrl } from '../config/api';
 
 interface JobAssignment {
   id: string;
@@ -26,7 +27,7 @@ const Execute: React.FC = () => {
     try {
       // For now, fetch all jobs with 'in-progress' and 'scheduled' status
       // In the real implementation, this would filter by user assignment
-      const response = await fetch('http://localhost:3001/api/kitting-jobs');
+      const response = await fetch(apiUrl('/api/kitting-jobs'));
       if (response.ok) {
         const jobs = await response.json();
 
