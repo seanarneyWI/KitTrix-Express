@@ -33,7 +33,10 @@ const CustomerAutocomplete: React.FC<CustomerAutocompleteProps> = ({
 
       setLoading(true);
       try {
-        const response = await axios.get(apiUrl(`/api/companies?search=${encodeURIComponent(value)}`));
+        const url = apiUrl(`/api/companies?search=${encodeURIComponent(value)}`);
+        console.log('Fetching companies from:', url);
+        const response = await axios.get(url);
+        console.log('Companies response:', response.data);
         setCompanies(response.data);
         setShowDropdown(true);
       } catch (error) {

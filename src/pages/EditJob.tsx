@@ -175,6 +175,8 @@ const EditJob: React.FC = () => {
         jobPayload.routeSteps = routeSteps;
       }
 
+      console.log('Submitting job:', { url, method, payload: jobPayload });
+
       const response = await fetch(url, {
         method,
         headers: {
@@ -185,7 +187,8 @@ const EditJob: React.FC = () => {
 
       if (!response.ok) {
         const errorData = await response.json();
-        setError(errorData.error || 'Failed to save job');
+        console.error('Server error response:', errorData);
+        setError(errorData.error || `Failed to save job: ${response.status} ${response.statusText}`);
         return;
       }
 
@@ -216,7 +219,8 @@ const EditJob: React.FC = () => {
       alert(isNewJob ? 'Job created successfully!' : 'Job updated successfully!');
       navigate('/admin');
     } catch (err) {
-      setError('Error saving job');
+      console.error('Error saving job:', err);
+      setError(`Error saving job: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
