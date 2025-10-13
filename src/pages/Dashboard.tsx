@@ -322,7 +322,7 @@ const Dashboard: React.FC = () => {
 
   const updateKittingJobSchedule = async (jobId: string, newDate: string, newTime: string) => {
     try {
-      const response = await fetch(`/api/kitting-jobs?id=${jobId}`, {
+      const response = await fetch(apiUrl(`/api/kitting-jobs?id=${jobId}`), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -385,7 +385,7 @@ const Dashboard: React.FC = () => {
   // Job operation handlers for context menu
   const handleAssignJob = async (jobId: string, userId: string) => {
     try {
-      const response = await fetch('/api/job-assignments', {
+      const response = await fetch(apiUrl('/api/job-assignments'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -408,7 +408,7 @@ const Dashboard: React.FC = () => {
 
   const handleUnassignJob = async (assignmentId: string) => {
     try {
-      const response = await fetch(`/api/job-assignments/${assignmentId}`, {
+      const response = await fetch(apiUrl(`/api/job-assignments/${assignmentId}`), {
         method: 'DELETE',
       });
 
@@ -423,7 +423,7 @@ const Dashboard: React.FC = () => {
 
   const handleChangeStatus = async (jobId: string, status: string) => {
     try {
-      const response = await fetch(`/api/kitting-jobs?id=${jobId}`, {
+      const response = await fetch(apiUrl(`/api/kitting-jobs?id=${jobId}`), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
