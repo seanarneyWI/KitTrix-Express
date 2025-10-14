@@ -148,9 +148,60 @@ free -h
 pkill -f 'npm.*dev'
 ```
 
+## Recent Fixes & Updates
+
+### API URL Configuration Fix (October 13, 2025)
+
+**Problem**: Production application was making API calls to `http://localhost:3001` instead of the production URL, causing "Failed to fetch" errors when creating jobs and using customer autocomplete.
+
+**Root Causes Identified**:
+1. Vite's `import.meta.env.PROD` was not being set to `true` during production builds
+2. Multiple fetch calls in `Dashboard.tsx` were using hardcoded relative URLs instead of the `apiUrl()` helper
+3. Browser caching was preventing the new code from loading
+
+**Solutions Implemented**:
+
+1. **Created API Configuration Module** (`src/config/api.ts`):
+   - Centralized API URL management
+   - Uses hostname-based detection instead of unreliable `import.meta.env.PROD`
+   - Logic: If hostname is NOT localhost/127.0.0.1 → Production (use `window.location.origin`)
+   - Includes comprehensive debug logging for troubleshooting
+
+2. **Fixed Hardcoded API Calls in Dashboard.tsx**:
+   - `updateKittingJobSchedule()` - Job scheduling updates
+   - `handleAssignJob()` - Job assignments
+   - `handleUnassignJob()` - Removing assignments
+   - `handleChangeStatus()` - Changing job status
+   - All now use `apiUrl()` helper for proper URL construction
+
+3. **Added Enhanced Error Logging**:
+   - `EditJob.tsx` - Detailed error messages with HTTP status codes
+   - `CustomerAutocomplete.tsx` - Request/response logging
+   - Console logs show exact URLs being called for debugging
+
+**Commits**:
+- `e5df4ce2` - Fix API URL detection using hostname check
+- `2d040879` - Add comprehensive logging to API config
+- `68b99f27` - Fix hardcoded API URLs in Dashboard
+- `e509f8e2` - Add detailed error logging
+- `57c3f319` - Initial production API URL configuration
+
+**Testing**:
+- Browser cache clearing required after deployment (Ctrl+Shift+R / Cmd+Shift+R)
+- Verified with console logs showing correct production URL detection
+- Confirmed job creation and customer autocomplete working in production
+
+**Deployment Notes**:
+- Server disk space was 98% full during deployment
+- Cleaned up Docker resources with `docker system prune -a -f --volumes`
+- Freed 7.53GB of space (now at 59% usage)
+- Recommend monitoring disk space and keeping it under 80%
+
 ## Next Steps & Future Improvements
-1. Set up automated deployment via GitHub Actions
-2. Implement health monitoring and alerts
-3. Add database backup automation
-4. Configure container auto-restart on failure
-5. Optimize Docker image size further
+1. Add cache-busting headers to prevent stale JavaScript issues
+2. Set up automated deployment via GitHub Actions
+3. Implement health monitoring and alerts
+4. Add database backup automation
+5. Configure container auto-restart on failure
+6. Optimize Docker image size further
+7. Set up disk space monitoring/alerts
