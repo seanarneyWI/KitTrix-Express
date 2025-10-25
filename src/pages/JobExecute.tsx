@@ -9,6 +9,8 @@ import {
   calculateProgress
 } from '../utils/kittingCalculations';
 import InstructionViewer from '../components/InstructionViewer';
+import CircularProgressView from '../components/CircularProgressView';
+import BasicExecutionView from '../components/BasicExecutionView';
 import { apiUrl } from '../config/api';
 
 const JobExecute: React.FC = () => {
@@ -51,7 +53,8 @@ const JobExecute: React.FC = () => {
         variancePercentage: number
       }>
     }>,
-    overallPerformanceStatus: 'ON_TRACK' as 'AHEAD' | 'ON_TRACK' | 'BEHIND'
+    jobPerformanceStatus: 'ON_TRACK' as 'AHEAD' | 'ON_TRACK' | 'BEHIND', // Overall job performance
+    overallPerformanceStatus: 'ON_TRACK' as 'AHEAD' | 'ON_TRACK' | 'BEHIND' // Current kit performance
   });
 
   const fetchJobData = async () => {
@@ -86,6 +89,27 @@ const JobExecute: React.FC = () => {
 
         if (progressData && progressData.length > 0) {
           const progress = progressData[0];
+
+          // If there's an active kit, fetch the current kit execution
+          if (progress.isActive && progress.currentKitNumber && progress.id) {
+            try {
+              const kitExecutionsResponse = await fetch(apiUrl(`/api/kit-executions?jobProgressId=${progress.id}`));
+              if (kitExecutionsResponse.ok) {
+                const kitExecutions = await kitExecutionsResponse.json();
+                // Find the current kit execution (not completed)
+                const currentKitExecution = kitExecutions.find(
+                  (ke: any) => ke.kitNumber === progress.currentKitNumber && !ke.completed
+                );
+                if (currentKitExecution) {
+                  console.log('🔧 Found current kit execution:', currentKitExecution.id);
+                  setCurrentKitExecutionId(currentKitExecution.id);
+                }
+              }
+            } catch (error) {
+              console.error('🔧 Error fetching kit executions:', error);
+            }
+          }
+
           setJobProgress({
             id: progress.id,
             jobId: progress.jobId,
@@ -144,6 +168,38 @@ const JobExecute: React.FC = () => {
     }
   }, [jobId]);
 
+  // Auto-start job if not yet started, or resume if in progress
+  useEffect(() => {
+    if (!loading && selectedJob) {
+      if (!jobProgress && selectedJob.status === 'SCHEDULED') {
+        console.log('🔧 Auto-starting job...');
+        startJob();
+      } else if (jobProgress && jobProgress.isActive && selectedJob.status === 'IN_PROGRESS' && !timerState.isRunning) {
+        console.log('🔧 Resuming job...', {
+          currentKitNumber: jobProgress.currentKitNumber,
+          completedKits: jobProgress.completedKits,
+          remainingKits: jobProgress.remainingKits
+        });
+
+        // Resume timer state
+        setTimerState({
+          jobStartTime: new Date(jobProgress.startTime).getTime(),
+          kitStartTime: Date.now(), // Start fresh kit timer
+          stepStartTime: Date.now(),
+          isRunning: true,
+          isPaused: false,
+          pausedDuration: 0
+        });
+
+        // Start the current kit
+        if (jobProgress.currentKitNumber) {
+          console.log('🔧 Starting kit on resume:', jobProgress.currentKitNumber);
+          startNewKit(jobProgress.currentKitNumber);
+        }
+      }
+    }
+  }, [loading, selectedJob, jobProgress]);
+
   // Timer effects with step progression
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -198,6 +254,11 @@ const JobExecute: React.FC = () => {
     const expectedJobDuration = selectedJob.expectedJobDuration;
     const jobVariance = calculateVariancePercentage(actualJobDuration, expectedJobDuration);
 
+    // Calculate overall JOB performance based on total job variance
+    let jobPerformanceStatus: 'AHEAD' | 'ON_TRACK' | 'BEHIND' = 'ON_TRACK';
+    if (jobVariance > 10) jobPerformanceStatus = 'BEHIND';
+    else if (jobVariance < -10) jobPerformanceStatus = 'AHEAD';
+
     // Calculate current kit performance (if kit is in progress)
     let currentKitPerformance: 'AHEAD' | 'ON_TRACK' | 'BEHIND' = 'ON_TRACK';
     if (timerState.kitStartTime && selectedJob.expectedKitDuration > 0) {
@@ -214,7 +275,8 @@ const JobExecute: React.FC = () => {
       actualJobDuration,
       expectedJobDuration,
       jobVariancePercentage: jobVariance,
-      overallPerformanceStatus: currentKitPerformance // Use current kit performance instead of total job
+      jobPerformanceStatus: jobPerformanceStatus, // Overall job performance
+      overallPerformanceStatus: currentKitPerformance // Current kit performance
     };
 
     setTimingAnalytics(updatedAnalytics);
@@ -228,10 +290,11 @@ const JobExecute: React.FC = () => {
         },
         body: JSON.stringify({
           jobId: selectedJob.id,
+          totalExpectedTime: expectedJobDuration,
           actualJobDuration,
           expectedJobDuration,
           variancePercentage: jobVariance,
-          performanceStatus,
+          performanceStatus: currentKitPerformance,
           completedKits: jobProgress?.completedKits || 0,
           totalKits: selectedJob.orderedQuantity,
           kitTimings: updatedAnalytics.completedKitsTimings
@@ -324,8 +387,13 @@ const JobExecute: React.FC = () => {
         throw new Error('Failed to create progress record');
       }
 
-      // Update local state
+      // Get the job progress ID from the response
+      const createdProgress = await progressResponse.json();
+      console.log('🔧 Created job progress with ID:', createdProgress.id);
+
+      // Update local state with the ID
       setJobProgress({
+        id: createdProgress.id,
         jobId: selectedJob.id,
         startTime: new Date().toISOString(),
         completedKits: 0,
@@ -353,8 +421,12 @@ const JobExecute: React.FC = () => {
         expectedJobDuration: selectedJob.expectedJobDuration,
         jobVariancePercentage: 0,
         completedKitsTimings: [],
+        jobPerformanceStatus: 'ON_TRACK',
         overallPerformanceStatus: 'ON_TRACK'
       });
+
+      // Automatically start the first kit with the job progress ID
+      startNewKit(1, createdProgress.id);
 
     } catch (error) {
       console.error('Error starting job:', error);
@@ -362,26 +434,28 @@ const JobExecute: React.FC = () => {
     }
   };
 
-  const startNewKit = async () => {
-    if (!selectedJob || !jobProgress) return;
+  const startNewKit = async (nextKitNumber?: number, explicitJobProgressId?: string) => {
+    if (!selectedJob) return;
 
     try {
-      console.log('🔧 Starting new kit:', jobProgress.completedKits + 1);
-      const kitNumber = jobProgress.completedKits + 1;
-      const startTime = new Date().toISOString();
-
-      // Create KitExecution record in database
-      if (!jobProgress.id) {
+      // Use explicit job progress ID if provided, otherwise fall back to state
+      const progressId = explicitJobProgressId || jobProgress?.id;
+      if (!progressId) {
         throw new Error('Job progress ID is missing');
       }
 
+      const kitNumber = nextKitNumber || ((jobProgress?.completedKits || 0) + 1);
+      console.log('🔧 Starting new kit:', kitNumber, 'with job progress ID:', progressId);
+      const startTime = new Date().toISOString();
+
+      // Create KitExecution record in database
       const kitExecutionResponse = await fetch(apiUrl('/api/kit-executions'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          jobProgressId: jobProgress.id,
+          jobProgressId: progressId,
           kitNumber,
           startTime
         }),
@@ -392,6 +466,8 @@ const JobExecute: React.FC = () => {
       }
 
       const kitExecution = await kitExecutionResponse.json();
+      console.log('🔧 Kit execution response:', kitExecution);
+      console.log('🔧 Setting currentKitExecutionId to:', kitExecution.id);
       setCurrentKitExecutionId(kitExecution.id);
 
       const newKit = {
@@ -416,7 +492,7 @@ const JobExecute: React.FC = () => {
       }));
 
       setStepCompletionSounds(new Set());
-      console.log('✅ Kit execution created:', kitExecution.id);
+      console.log('✅ Kit execution created with ID:', kitExecution.id);
     } catch (error) {
       console.error('Error starting kit:', error);
       alert('Failed to start kit. Please try again.');
@@ -424,10 +500,47 @@ const JobExecute: React.FC = () => {
   };
 
   const completeKit = async () => {
-    if (!selectedJob || !jobProgress || !jobProgress.currentKit || !currentKitExecutionId) return;
+    if (!selectedJob || !jobProgress || !jobProgress.currentKit || !jobProgress.id) {
+      console.error('🔧 Missing required data:', {
+        hasSelectedJob: !!selectedJob,
+        hasJobProgress: !!jobProgress,
+        hasCurrentKit: !!jobProgress?.currentKit,
+        hasJobProgressId: !!jobProgress?.id
+      });
+      alert('Missing required data to complete kit. Please refresh and try again.');
+      return;
+    }
 
     try {
-      console.log('🔧 Completing kit:', jobProgress.currentKit.kitNumber);
+      const kitNumber = jobProgress.currentKit.kitNumber;
+      console.log('🔧 Completing kit:', kitNumber, 'for job progress ID:', jobProgress.id);
+
+      // Fetch the current kit execution ID from the database
+      const fetchUrl = apiUrl(`/api/kit-executions?jobProgressId=${jobProgress.id}`);
+      console.log('🔧 Fetching kit executions from:', fetchUrl);
+      const kitExecutionsResponse = await fetch(fetchUrl);
+
+      if (!kitExecutionsResponse.ok) {
+        const errorText = await kitExecutionsResponse.text();
+        console.error('🔧 Failed to fetch kit executions:', errorText);
+        throw new Error(`Failed to fetch kit executions: ${errorText}`);
+      }
+
+      const kitExecutions = await kitExecutionsResponse.json();
+      console.log('🔧 Found kit executions:', kitExecutions);
+
+      const currentKitExecution = kitExecutions.find(
+        (ke: any) => ke.kitNumber === kitNumber && !ke.completed
+      );
+
+      if (!currentKitExecution) {
+        console.error('🔧 Current kit execution not found. Kit executions:', kitExecutions, 'Looking for kit number:', kitNumber);
+        throw new Error(`Current kit execution not found for kit #${kitNumber}`);
+      }
+
+      console.log('🔧 Found kit execution:', currentKitExecution.id);
+
+      console.log('🔧 Found kit execution:', currentKitExecution.id);
       const endTime = new Date().toISOString();
       const actualDuration = timerState.kitStartTime ?
         Math.floor((Date.now() - timerState.kitStartTime) / 1000) : 0;
@@ -443,7 +556,7 @@ const JobExecute: React.FC = () => {
       if (variancePercentage > 10) kitPerformance = 'BEHIND';
       else if (variancePercentage < -10) kitPerformance = 'AHEAD';
 
-      console.log(`📊 Kit ${jobProgress.currentKit.kitNumber} Performance:`, {
+      console.log(`📊 Kit ${kitNumber} Performance:`, {
         expected: expectedDuration,
         actual: actualDuration,
         variance: varianceSeconds,
@@ -452,7 +565,7 @@ const JobExecute: React.FC = () => {
       });
 
       // Update KitExecution record with completion data
-      const kitExecutionUpdateResponse = await fetch(apiUrl(`/api/kit-executions/${currentKitExecutionId}`), {
+      const kitExecutionUpdateResponse = await fetch(apiUrl(`/api/kit-executions/${currentKitExecution.id}`), {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -476,7 +589,7 @@ const JobExecute: React.FC = () => {
       };
 
       const newCompletedKits = jobProgress.completedKits + 1;
-      const newRemainingKits = jobProgress.remainingKits - 1;
+      const newRemainingKits = selectedJob.orderedQuantity - newCompletedKits;
 
       // Update progress in database
       const progressData = {
@@ -529,7 +642,10 @@ const JobExecute: React.FC = () => {
       } : null);
 
       if (newRemainingKits > 0) {
-        setTimeout(() => startNewKit(), 100);
+        // Immediately start the next kit with explicit kit number
+        const nextKitNumber = newCompletedKits + 1;
+        console.log('🔧 About to start next kit:', nextKitNumber);
+        startNewKit(nextKitNumber);
       } else {
         // Job completed - update job status
         const jobUpdateResponse = await fetch(apiUrl(`/api/kitting-jobs/${selectedJob.id}`), {
@@ -617,7 +733,7 @@ const JobExecute: React.FC = () => {
           <h1 className="text-2xl font-bold text-red-600 mb-4">Access Denied</h1>
           <p className="text-gray-600 mb-6">{error}</p>
           <button
-            onClick={() => navigate('/execute')}
+            onClick={() => navigate('/')}
             className="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
           >
             Back to Your Jobs
@@ -640,37 +756,10 @@ const JobExecute: React.FC = () => {
 
   if (!jobProgress) {
     return (
-      <div className="min-h-screen bg-gray-100 flex flex-col">
-        <div className="container mx-auto flex-1 flex flex-col">
-
-          {/* Simple Ready to Start Display */}
-          <div className="flex-1 flex items-center justify-center mb-6">
-            <div className="bg-white rounded-lg shadow-xl p-12 text-center max-w-md">
-              <h2 className="text-4xl font-bold text-gray-800 mb-8">Ready to Start</h2>
-              <button
-                onClick={startJob}
-                className="bg-gradient-to-r from-green-500 to-green-600 text-white py-4 px-8 rounded-lg text-xl font-bold hover:from-green-600 hover:to-green-700 transition-all shadow-lg"
-              >
-                Start Job
-              </button>
-            </div>
-          </div>
-
-          {/* Route Steps Preview */}
-          <div className="bg-white rounded-lg shadow-lg p-6">
-            <h2 className="text-xl font-bold text-center mb-4">Route Steps Overview</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-              {selectedJob?.routeSteps?.map((step, index) => (
-                <div
-                  key={index}
-                  className="p-3 rounded-lg text-center bg-gray-50 border-2 border-gray-300 text-gray-600"
-                >
-                  <div className="font-bold text-sm mb-1">{step.name}</div>
-                  <div className="text-xs">Expected: {formatTime(step.expectedSeconds)}</div>
-                </div>
-              ))}
-            </div>
-          </div>
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Starting job...</p>
         </div>
       </div>
     );
@@ -680,45 +769,111 @@ const JobExecute: React.FC = () => {
     <div className="min-h-screen bg-gray-100 p-4">
       <div className="container mx-auto max-w-6xl">
 
-        {/* Job Timing Strip */}
-        <div className="bg-white rounded-lg shadow-sm mb-2 p-4">
-          <div className="flex items-center justify-center gap-8 text-sm">
-            <div className="flex items-center gap-2">
-              <span className="text-gray-500">Expected Job Time:</span>
-              <span className="font-bold text-gray-700">{formatDuration(timingAnalytics.expectedJobDuration)}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-gray-500">Actual Job Time:</span>
-              <span className={`font-bold ${
-                timingAnalytics.overallPerformanceStatus === 'AHEAD' ? 'text-green-600' :
-                timingAnalytics.overallPerformanceStatus === 'BEHIND' ? 'text-red-600' :
-                'text-blue-600'
-              }`}>
-                {formatDuration(timingAnalytics.actualJobDuration)}
-                {timingAnalytics.jobVariancePercentage !== 0 && (
-                  <span className={`ml-1 ${
-                    timingAnalytics.jobVariancePercentage > 0 ? 'text-red-500' : 'text-green-500'
+        {/* Job Timing Strip - Only shown for STEPS and TARGET interfaces */}
+        {selectedJob.executionInterface !== 'BASIC' && (
+          <div className="bg-white rounded-lg shadow-sm mb-2 p-4">
+            <div className="flex items-center justify-center gap-8 text-sm">
+              {/* Timing Stats */}
+              <div className="flex items-center gap-8">
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500">Expected Job Time:</span>
+                  <span className="font-bold text-gray-700">{formatDuration(timingAnalytics.expectedJobDuration)}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500">Actual Job Time:</span>
+                  <span className={`font-bold ${
+                    timingAnalytics.overallPerformanceStatus === 'AHEAD' ? 'text-green-600' :
+                    timingAnalytics.overallPerformanceStatus === 'BEHIND' ? 'text-red-600' :
+                    'text-blue-600'
                   }`}>
-                    ({timingAnalytics.jobVariancePercentage > 0 ? '+' : ''}{timingAnalytics.jobVariancePercentage}%)
+                    {formatDuration(timingAnalytics.actualJobDuration)}
+                    {timingAnalytics.jobVariancePercentage !== 0 && (
+                      <span className={`ml-1 ${
+                        timingAnalytics.jobVariancePercentage > 0 ? 'text-red-500' : 'text-green-500'
+                      }`}>
+                        ({timingAnalytics.jobVariancePercentage > 0 ? '+' : ''}{timingAnalytics.jobVariancePercentage}%)
+                      </span>
+                    )}
                   </span>
-                )}
-              </span>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* Media Card */}
-        <div className="mb-2">
-          {jobProgress?.currentKit && currentStep?.step ? (
+        {/* Conditional View Rendering Based on Execution Interface */}
+        {selectedJob.executionInterface === 'BASIC' ? (
+          /* Basic View - Large Button Interface */
+          jobProgress?.currentKit ? (
+            <BasicExecutionView
+              jobNumber={selectedJob.jobNumber}
+              customerName={selectedJob.customerName}
+              currentKitNumber={jobProgress.currentKit.kitNumber}
+              totalKits={selectedJob.orderedQuantity}
+              currentElapsedKitTime={currentElapsedKitTime}
+              expectedKitDuration={selectedJob.expectedKitDuration}
+              performanceStatus={timingAnalytics.overallPerformanceStatus}
+              onCompleteKit={completeKit}
+              isPaused={timerState.isPaused}
+            />
+          ) : (
+            <div className="bg-white rounded-lg shadow-2xl p-12 text-center border-4 border-green-200 mb-2">
+              <div className="text-8xl text-green-500 mb-6">✓</div>
+              <div className="text-3xl text-gray-600">
+                {selectedJob?.status === 'COMPLETED' || jobProgress?.remainingKits === 0
+                  ? 'Job Complete!'
+                  : 'Starting Next Kit...'}
+              </div>
+            </div>
+          )
+        ) : selectedJob.executionInterface === 'TARGET' ? (
+          /* Target View - Circular Progress Interface */
+          jobProgress?.currentKit ? (
+            <CircularProgressView
+              completedKits={jobProgress.completedKits}
+              totalKits={selectedJob.orderedQuantity}
+              currentElapsedKitTime={currentElapsedKitTime}
+              expectedKitDuration={selectedJob.expectedKitDuration}
+              performanceStatus={timingAnalytics.overallPerformanceStatus}
+              jobPerformanceStatus={timingAnalytics.jobPerformanceStatus}
+              isPaused={timerState.isPaused}
+              jobNumber={selectedJob.jobNumber}
+              customerName={selectedJob.customerName}
+              description={selectedJob.description}
+            />
+          ) : (
+            <div className="bg-white rounded-lg shadow-2xl p-12 text-center border-4 border-green-200 mb-2">
+              <div className="text-8xl text-green-500 mb-6">✓</div>
+              <div className="text-3xl text-gray-600">
+                {selectedJob?.status === 'COMPLETED' || jobProgress?.remainingKits === 0
+                  ? 'Job Complete!'
+                  : 'Starting Next Kit...'}
+              </div>
+            </div>
+          )
+        ) : (
+          /* Steps View - Instruction-Driven Interface */
+          <>
+            {/* Media Card */}
+            <div className="mb-0">
+              {jobProgress?.currentKit && currentStep?.step ? (
             <div className="bg-white rounded-lg shadow-2xl p-6 text-center border-4 border-blue-200">
               <div className="flex justify-between items-center mb-4 px-2">
-                <h1 className="text-2xl font-semibold text-blue-800">
-                  {currentStep.step.name}
-                </h1>
-                <div className="text-sm text-gray-600 font-mono">
-                  Expected: {Math.floor(currentStep.step.expectedSeconds / 60)}:{(currentStep.step.expectedSeconds % 60).toString().padStart(2, '0')} |
-                  Elapsed: {Math.floor(currentStep.timeInStep / 60)}:{(currentStep.timeInStep % 60).toString().padStart(2, '0')} |
-                  Remaining: {Math.floor(Math.max(0, getRemainingStepTime(currentStep.step, currentStep.timeInStep)) / 60)}:{(Math.max(0, getRemainingStepTime(currentStep.step, currentStep.timeInStep)) % 60).toString().padStart(2, '0')}
+                <div>
+                  <h1 className="text-2xl font-semibold text-blue-800">
+                    {currentStep.step.name}
+                  </h1>
+                  <div className="text-xs text-gray-500 text-left mt-1">
+                    Kit #{jobProgress.currentKit.kitNumber} of {selectedJob?.orderedQuantity || 0}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-lg font-bold text-purple-600">
+                    Kit Timer: {selectedJob ? formatDuration(selectedJob.expectedKitDuration - currentElapsedKitTime) : 'Loading...'}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    Expected: {selectedJob ? formatDuration(selectedJob.expectedKitDuration) : 'Loading...'}
+                  </div>
                 </div>
               </div>
 
@@ -733,7 +888,7 @@ const JobExecute: React.FC = () => {
               </div>
 
               <div className="border-t border-gray-200 pt-4">
-                <div className={`text-4xl font-mono font-bold mb-2 transition-colors duration-300 ${
+                <div className={`text-4xl font-mono font-bold transition-colors duration-300 ${
                   getRemainingStepTime(currentStep.step, currentStep.timeInStep) <= 10
                     ? 'text-red-600 animate-pulse'
                     : getRemainingStepTime(currentStep.step, currentStep.timeInStep) <= 30
@@ -742,134 +897,67 @@ const JobExecute: React.FC = () => {
                 }`}>
                   {Math.max(0, getRemainingStepTime(currentStep.step, currentStep.timeInStep))}s
                 </div>
-
-                <div className="text-lg text-gray-700">
-                  Kit #{jobProgress.currentKit.kitNumber} of {selectedJob?.orderedQuantity || 0}
-                </div>
               </div>
             </div>
           ) : (
             <div className="bg-white rounded-lg shadow-2xl p-8 text-center border-4 border-green-200">
               <div className="flex justify-center items-center mb-6">
                 <h1 className="text-3xl font-semibold text-green-800">
-                  Ready to Start Next Kit
+                  {selectedJob?.status === 'COMPLETED' || jobProgress?.remainingKits === 0
+                    ? 'Job Complete!'
+                    : 'Starting Next Kit'}
                 </h1>
               </div>
 
-              <div className="bg-gray-100 rounded-lg p-12 mb-8" style={{ height: '400px' }}>
+              <div className="bg-gray-100 rounded-lg p-12" style={{ height: '400px' }}>
                 <div className="text-center flex flex-col justify-center h-full">
-                  <div className="text-8xl text-green-500 mb-6">🚀</div>
-                  <div className="text-3xl text-gray-600 mb-4">Kit Setup Complete</div>
-                  <div className="text-xl text-gray-500">Click below to begin next kit</div>
+                  <div className="text-8xl text-green-500 mb-6">✓</div>
+                  <div className="text-3xl text-gray-600 mb-4">
+                    {selectedJob?.status === 'COMPLETED' || jobProgress?.remainingKits === 0
+                      ? `All ${selectedJob?.orderedQuantity || 0} Kits Completed!`
+                      : 'Kit Complete!'}
+                  </div>
+                  <div className="text-xl text-gray-500">
+                    {selectedJob?.status === 'COMPLETED' || jobProgress?.remainingKits === 0
+                      ? 'Great work!'
+                      : 'Next kit starting automatically...'}
+                  </div>
                 </div>
               </div>
-
-              <button
-                onClick={startNewKit}
-                className="bg-gradient-to-r from-green-500 to-green-600 text-white py-8 px-16 rounded-2xl text-4xl font-bold hover:from-green-600 hover:to-green-700 transition-all shadow-lg"
-              >
-                Start Next Kit
-              </button>
             </div>
           )}
         </div>
+          </>
+        )}
 
-        {/* Route Steps Panel */}
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-2">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-center flex-1">Route Steps Progress</h2>
-            <div className="text-right">
-              <div className="text-lg font-bold text-purple-600">
-                Kit Timer: {selectedJob ? formatDuration(selectedJob.expectedKitDuration - currentElapsedKitTime) : 'Loading...'}
-              </div>
-              <div className="text-sm text-gray-500">Expected Total: {selectedJob ? formatDuration(selectedJob.expectedKitDuration) : 'Loading...'}</div>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-            {selectedJob?.routeSteps?.map((step, index) => {
-              const isCurrent = currentStep?.stepIndex === index;
-              const isPast = currentStep ? currentStep.stepIndex > index : false;
-              const countdown = getStepCountdown(index, step.expectedSeconds);
-              const isOverdue = isCurrent && countdown === 0;
-
-              return (
-                <div
-                  key={index}
-                  className={`p-4 rounded-lg text-center transition-all border-2 ${
-                    isOverdue
-                      ? 'bg-red-50 border-red-500 text-red-800 shadow-lg transform scale-105 animate-pulse'
-                      : isCurrent
-                      ? 'bg-blue-50 border-blue-500 text-blue-800 shadow-lg transform scale-105'
-                      : isPast
-                      ? 'bg-green-50 border-green-500 text-green-800'
-                      : 'bg-gray-50 border-gray-300 text-gray-600'
-                  }`}
-                >
-                  <div className="font-bold text-lg mb-2">{step.name}</div>
-                  <div className="text-sm mb-2">Expected: {formatTime(step.expectedSeconds)}</div>
-
-                  {isPast && (
-                    <div className="text-green-600 font-semibold text-lg">✓ Complete</div>
-                  )}
-
-                  {!isPast && (
-                    <div className={`text-xl font-mono font-bold ${
-                      isOverdue ? 'text-red-600' :
-                      isCurrent ? 'text-blue-600' :
-                      'text-gray-500'
-                    }`}>
-                      {formatDuration(countdown)}
-                    </div>
-                  )}
-
-                  {isOverdue && (
-                    <div className="text-red-500 text-xs font-semibold mt-1">OVERDUE!</div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Bottom Timing Panel */}
-        <div className="bg-white rounded-lg shadow-lg p-6">
-          <div className="flex items-center justify-between">
-            {/* Job Info */}
-            <div className="flex items-center gap-4">
-              <div>
-                <h1 className="text-lg font-bold text-gray-800">
-                  Job {selectedJob?.jobNumber || jobId} - {selectedJob?.description || 'Loading...'}
-                </h1>
-                <p className="text-sm text-gray-600">{selectedJob?.customerName || 'Loading...'} • {selectedJob?.customerSpec || 'Loading...'}</p>
-              </div>
-            </div>
-
+        {/* Bottom Control Panel */}
+        <div className="bg-white rounded-lg shadow-md p-3">
+          <div className="flex items-center justify-between gap-4">
             {/* Timing Stats */}
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-4">
               <div className="text-center">
-                <div className="text-lg font-bold text-purple-600">
+                <div className="text-sm font-bold text-purple-600">
                   {formatDuration(currentElapsedKitTime)}
                 </div>
-                <div className="text-xs text-gray-500">Current Kit Time</div>
+                <div className="text-xs text-gray-500">Current Kit</div>
               </div>
 
               <div className="text-center">
-                <div className="text-lg font-bold text-green-600">
+                <div className="text-sm font-bold text-green-600">
                   {jobProgress?.completedKits || 0}
                 </div>
                 <div className="text-xs text-gray-500">Completed</div>
               </div>
 
               <div className="text-center">
-                <div className="text-lg font-bold text-orange-600">
+                <div className="text-sm font-bold text-orange-600">
                   {jobProgress?.remainingKits || selectedJob?.orderedQuantity || 0}
                 </div>
                 <div className="text-xs text-gray-500">Remaining</div>
               </div>
 
-              {/* Performance Status Indicator */}
               <div className="text-center">
-                <div className={`text-sm font-bold px-2 py-1 rounded-full ${
+                <div className={`text-xs font-bold px-2 py-1 rounded-full ${
                   timingAnalytics.overallPerformanceStatus === 'AHEAD' ? 'bg-green-100 text-green-800' :
                   timingAnalytics.overallPerformanceStatus === 'BEHIND' ? 'bg-red-100 text-red-800' :
                   'bg-blue-100 text-blue-800'
@@ -881,21 +969,21 @@ const JobExecute: React.FC = () => {
             </div>
 
             {/* Action Buttons */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               {jobProgress?.currentKit ? (
                 <button
                   onClick={completeKit}
-                  className="bg-gradient-to-r from-green-500 to-green-600 text-white py-4 px-12 rounded-xl text-2xl font-bold hover:from-green-600 hover:to-green-700 transition-all shadow-lg"
+                  className="bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded-lg text-sm font-semibold transition-all"
                 >
                   Complete Kit #{jobProgress.currentKit.kitNumber}
                 </button>
               ) : (
-                <div className="text-gray-500 text-sm">Press "Start Next Kit" above to begin</div>
+                <div className="text-gray-500 text-xs">Next kit starting...</div>
               )}
 
               <button
                 onClick={pauseResumeJob}
-                className={`px-4 py-3 rounded-lg font-semibold transition-all ${
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
                   timerState.isPaused
                     ? 'bg-green-500 hover:bg-green-600 text-white'
                     : 'bg-yellow-500 hover:bg-yellow-600 text-white'
@@ -904,8 +992,8 @@ const JobExecute: React.FC = () => {
                 {timerState.isPaused ? 'Resume' : 'Pause'}
               </button>
               <button
-                onClick={() => navigate('/execute')}
-                className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-3 rounded-lg font-semibold transition-all"
+                onClick={() => navigate('/admin')}
+                className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all"
               >
                 Back to Jobs
               </button>

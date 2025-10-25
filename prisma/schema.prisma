@@ -58,6 +58,9 @@ model KittingJob {
   scheduledDate     DateTime?
   scheduledStartTime String?
 
+  // Execution interface preference
+  executionInterface ExecutionInterface @default(STEPS) @map("execution_interface")
+
   // Status tracking
   status        JobStatus @default(SCHEDULED)
   createdAt     DateTime  @default(now())
@@ -218,6 +221,12 @@ enum InstructionType {
   VIDEO
   IMAGE
   TEXT
+}
+
+enum ExecutionInterface {
+  STEPS
+  TARGET
+  BASIC
 }
 
 model User {

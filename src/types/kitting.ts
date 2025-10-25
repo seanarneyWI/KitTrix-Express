@@ -1,4 +1,5 @@
 export type InstructionType = 'NONE' | 'VIDEO' | 'IMAGE' | 'TEXT';
+export type ExecutionInterface = 'STEPS' | 'TARGET' | 'BASIC';
 
 export interface RouteStep {
   id?: string;
@@ -23,6 +24,7 @@ export interface KittingJobData {
   makeReady: number; // seconds
   takeDown: number; // seconds
   routeSteps: RouteStep[]; // array of route steps with instructions
+  executionInterface?: ExecutionInterface; // optional for job creation
 }
 
 export interface KittingJob {
@@ -40,6 +42,7 @@ export interface KittingJob {
   routeSteps: RouteStep[];
   expectedKitDuration: number; // EKD - calculated
   expectedJobDuration: number; // EJD - calculated
+  executionInterface: ExecutionInterface; // execution interface preference
   status: 'scheduled' | 'in-progress' | 'completed' | 'paused';
   createdAt: string;
   scheduledDate?: string;

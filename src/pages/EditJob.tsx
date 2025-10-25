@@ -25,6 +25,7 @@ interface JobFormData {
   dueDate: string;
   scheduledDate: string;
   scheduledStartTime: string;
+  executionInterface: 'STEPS' | 'TARGET' | 'BASIC';
   setup: number;
   makeReady: number;
   takeDown: number;
@@ -49,6 +50,7 @@ const EditJob: React.FC = () => {
     dueDate: '',
     scheduledDate: '',
     scheduledStartTime: '',
+    executionInterface: 'STEPS',
     setup: 0,
     makeReady: 0,
     takeDown: 0,
@@ -83,6 +85,7 @@ const EditJob: React.FC = () => {
           dueDate: job.dueDate ? new Date(job.dueDate).toISOString().slice(0, 16) : '',
           scheduledDate: job.scheduledDate ? new Date(job.scheduledDate).toISOString().slice(0, 10) : '',
           scheduledStartTime: job.scheduledStartTime || '',
+          executionInterface: job.executionInterface || 'STEPS',
           setup: job.setup || 0,
           makeReady: job.makeReady || 0,
           takeDown: job.takeDown || 0,
@@ -382,6 +385,20 @@ const EditJob: React.FC = () => {
                   onChange={(e) => handleInputChange('scheduledStartTime', e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Execution Interface *</label>
+                <select
+                  value={formData.executionInterface}
+                  onChange={(e) => handleInputChange('executionInterface', e.target.value as 'STEPS' | 'TARGET' | 'BASIC')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  <option value="STEPS">📋 Steps - Instruction-driven with media viewer</option>
+                  <option value="TARGET">🎯 Target - Performance-focused circular view</option>
+                  <option value="BASIC">⚡ Basic - One-button simplicity</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Choose how workers will interact with this job during execution</p>
               </div>
             </div>
 
