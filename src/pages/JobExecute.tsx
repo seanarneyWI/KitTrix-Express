@@ -792,8 +792,15 @@ const JobExecute: React.FC = () => {
         setSelectedJob(prev => prev ? { ...prev, status: 'COMPLETED' } : null);
       }
     } catch (error) {
-      console.error('Error completing kit:', error);
-      alert('Failed to complete kit. Please try again.');
+      console.error('❌ Error completing kit:', error);
+      console.error('❌ Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        currentKitExecutionId: currentKitExecutionId.current,
+        jobProgressId: jobProgress?.id,
+        currentKit: jobProgress?.currentKit
+      });
+      alert(`Failed to complete kit: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
