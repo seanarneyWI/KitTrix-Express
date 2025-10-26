@@ -121,6 +121,9 @@ model JobProgress {
   workCenter      WorkCenter? @relation(fields: [workCenterId], references: [id])
   assignedWorker  String?
 
+  // Multi-station tracking
+  nextStationNumber Int     @default(0) @map("next_station_number")
+
   // Relations
   kitExecutions   KitExecution[]
 
@@ -140,6 +143,10 @@ model KitExecution {
   endTime         DateTime?
   actualDuration  Int?         // seconds
   completed       Boolean      @default(false)
+
+  // Multi-station tracking
+  stationNumber   Int?         @map("station_number")
+  stationName     String?      @map("station_name")
 
   // Relations
   stepExecutions  StepExecution[]

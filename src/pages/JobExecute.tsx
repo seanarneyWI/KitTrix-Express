@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { KittingJob, JobProgress, TimerState } from '../types/kitting';
 import {
@@ -32,7 +32,15 @@ const JobExecute: React.FC = () => {
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [currentKitExecutionId, setCurrentKitExecutionId] = useState<string | null>(null);
+  const currentKitExecutionId = useRef<string | null>(null);
+
+  // Station tracking for multi-worker support
+  const [stationNumber, setStationNumber] = useState<number | null>(null);
+  const [stationName, setStationName] = useState<string | null>(null);
+  const [stationKitsCompleted, setStationKitsCompleted] = useState<number>(0); // Track kits completed by THIS station
+  const isAssigningStation = useRef(false); // Prevent duplicate station assignments
+  const isStartingJob = useRef(false); // Prevent auto-start during manual job start
+  const hasAutoStarted = useRef(false); // Prevent auto-start from running multiple times
 
   // Comprehensive timing analytics state
   const [timingAnalytics, setTimingAnalytics] = useState({
@@ -89,26 +97,6 @@ const JobExecute: React.FC = () => {
 
         if (progressData && progressData.length > 0) {
           const progress = progressData[0];
-
-          // If there's an active kit, fetch the current kit execution
-          if (progress.isActive && progress.currentKitNumber && progress.id) {
-            try {
-              const kitExecutionsResponse = await fetch(apiUrl(`/api/kit-executions?jobProgressId=${progress.id}`));
-              if (kitExecutionsResponse.ok) {
-                const kitExecutions = await kitExecutionsResponse.json();
-                // Find the current kit execution (not completed)
-                const currentKitExecution = kitExecutions.find(
-                  (ke: any) => ke.kitNumber === progress.currentKitNumber && !ke.completed
-                );
-                if (currentKitExecution) {
-                  console.log('🔧 Found current kit execution:', currentKitExecution.id);
-                  setCurrentKitExecutionId(currentKitExecution.id);
-                }
-              }
-            } catch (error) {
-              console.error('🔧 Error fetching kit executions:', error);
-            }
-          }
 
           setJobProgress({
             id: progress.id,
@@ -176,7 +164,6 @@ const JobExecute: React.FC = () => {
         startJob();
       } else if (jobProgress && jobProgress.isActive && selectedJob.status === 'IN_PROGRESS' && !timerState.isRunning) {
         console.log('🔧 Resuming job...', {
-          currentKitNumber: jobProgress.currentKitNumber,
           completedKits: jobProgress.completedKits,
           remainingKits: jobProgress.remainingKits
         });
@@ -191,14 +178,127 @@ const JobExecute: React.FC = () => {
           pausedDuration: 0
         });
 
-        // Start the current kit
-        if (jobProgress.currentKitNumber) {
-          console.log('🔧 Starting kit on resume:', jobProgress.currentKitNumber);
-          startNewKit(jobProgress.currentKitNumber);
-        }
+        // NOTE: We don't auto-start a kit on resume anymore
+        // The auto-start effect (below) will handle starting the first kit for this station
+        console.log('🔧 Resume complete - auto-start effect will handle kit start if needed');
       }
     }
   }, [loading, selectedJob, jobProgress]);
+
+  // Request station assignment when job progress is loaded
+  useEffect(() => {
+    const assignStation = async () => {
+      // Prevent duplicate calls
+      if (jobProgress && !stationNumber && !isAssigningStation.current && jobProgress.isActive && jobProgress.remainingKits > 0) {
+        isAssigningStation.current = true;
+        try {
+          console.log('🔧 Requesting station assignment for jobProgress:', jobProgress.id);
+          const response = await fetch(apiUrl(`/api/job-progress/${jobProgress.id}/assign-station`), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          });
+
+          if (response.ok) {
+            const { stationNumber: assignedNumber, stationName: assignedName } = await response.json();
+            console.log('🔧 Station assigned:', { assignedNumber, assignedName });
+            setStationNumber(assignedNumber);
+            setStationName(assignedName);
+            // Don't start kit here - let the next effect handle it after re-render
+          } else {
+            console.error('🔧 Failed to assign station');
+            isAssigningStation.current = false; // Reset on error
+          }
+        } catch (error) {
+          console.error('🔧 Error assigning station:', error);
+          isAssigningStation.current = false; // Reset on error
+        }
+      }
+    };
+
+    assignStation();
+  }, [jobProgress]);
+
+  // Auto-start first kit once station is assigned
+  useEffect(() => {
+    if (
+      stationNumber &&
+      stationName &&
+      jobProgress &&
+      !jobProgress.currentKit &&
+      jobProgress.isActive &&
+      jobProgress.remainingKits > 0 &&
+      !hasAutoStarted.current
+    ) {
+      hasAutoStarted.current = true;
+      console.log('🔧 Auto-starting first kit for station', stationNumber);
+      startNewKit(1);
+    }
+  }, [stationNumber, stationName, jobProgress]);
+
+  // Release station when window/tab is closed
+  useEffect(() => {
+    const releaseStation = () => {
+      if (jobProgress?.id && stationNumber) {
+        try {
+          console.log(`📍 Releasing Station ${stationNumber} on window close`);
+          // Use fetch with keepalive for reliability during page unload
+          fetch(apiUrl(`/api/job-progress/${jobProgress.id}/release-station`), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+            keepalive: true // Ensures request completes even if page unloads
+          }).catch(err => console.error('Error releasing station:', err));
+        } catch (error) {
+          console.error('Error releasing station:', error);
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', releaseStation);
+
+    return () => {
+      window.removeEventListener('beforeunload', releaseStation);
+      // Also release when component unmounts (navigating away)
+      releaseStation();
+    };
+  }, [jobProgress?.id, stationNumber]);
+
+  // Poll job progress to sync with other stations (multi-worker support)
+  useEffect(() => {
+    if (!jobId || !timerState.isRunning) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(apiUrl(`/api/job-progress?jobId=${jobId}`));
+        if (response.ok) {
+          const pollProgressData = await response.json();
+          if (pollProgressData && pollProgressData.length > 0) {
+            const latestProgress = pollProgressData[0];
+
+            // Merge latest progress while preserving local currentKit
+            setJobProgress(prev => {
+              if (!prev) return latestProgress;
+
+              // Only update if completedKits changed (another station completed a kit)
+              if (prev.completedKits !== latestProgress.completedKits) {
+                console.log('🔄 Syncing job progress from other station:', latestProgress);
+                return {
+                  ...latestProgress,
+                  currentKit: prev.currentKit // Preserve local currentKit
+                };
+              }
+
+              return prev; // No changes, keep current state
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error polling job progress:', error);
+      }
+    }, 2000); // Poll every 2 seconds
+
+    return () => clearInterval(pollInterval);
+  }, [jobId, timerState.isRunning]);
 
   // Timer effects with step progression
   useEffect(() => {
@@ -348,6 +448,7 @@ const JobExecute: React.FC = () => {
     if (!selectedJob) return;
 
     try {
+      isStartingJob.current = true; // Prevent auto-start effect from interfering
       console.log('🔧 Starting job:', selectedJob.id);
 
       // Update job status to IN_PROGRESS
@@ -370,9 +471,9 @@ const JobExecute: React.FC = () => {
         jobId: selectedJob.id,
         completedKits: 0,
         remainingKits: selectedJob.orderedQuantity,
-        currentKitNumber: 1,
         startTime: new Date().toISOString(),
-        isActive: true
+        isActive: true,
+        nextStationNumber: 0 // Reset station counter when starting job
       };
 
       const progressResponse = await fetch(apiUrl('/api/job-progress'), {
@@ -426,15 +527,22 @@ const JobExecute: React.FC = () => {
       });
 
       // Automatically start the first kit with the job progress ID
-      startNewKit(1, createdProgress.id);
+      await startNewKit(1, createdProgress.id);
+
+      // Reset flag after kit is started
+      setTimeout(() => {
+        isStartingJob.current = false;
+      }, 1000); // Give time for state to update
 
     } catch (error) {
       console.error('Error starting job:', error);
+      isStartingJob.current = false; // Reset on error
       alert('Failed to start job. Please try again.');
     }
   };
 
-  const startNewKit = async (nextKitNumber?: number, explicitJobProgressId?: string) => {
+  const startNewKit = async (nextKitNumber?: number, explicitJobProgressId?: string, explicitStationNumber?: number, explicitStationName?: string) => {
+    console.log('🔍 START NEW KIT CALLED:', { nextKitNumber, explicitJobProgressId, explicitStationNumber, explicitStationName, stationNumber, stationKitsCompleted });
     if (!selectedJob) return;
 
     try {
@@ -444,8 +552,13 @@ const JobExecute: React.FC = () => {
         throw new Error('Job progress ID is missing');
       }
 
-      const kitNumber = nextKitNumber || ((jobProgress?.completedKits || 0) + 1);
-      console.log('🔧 Starting new kit:', kitNumber, 'with job progress ID:', progressId);
+      // Use explicit station info if provided, otherwise fall back to state
+      const useStationNumber = explicitStationNumber ?? stationNumber;
+      const useStationName = explicitStationName ?? stationName;
+
+      // Calculate kit number based on THIS STATION's completed kits, not global
+      const kitNumber = nextKitNumber || (stationKitsCompleted + 1);
+      console.log(`🔧 Station ${useStationNumber} starting kit: ${kitNumber} (Station total: ${stationKitsCompleted})`);
       const startTime = new Date().toISOString();
 
       // Create KitExecution record in database
@@ -457,7 +570,9 @@ const JobExecute: React.FC = () => {
         body: JSON.stringify({
           jobProgressId: progressId,
           kitNumber,
-          startTime
+          startTime,
+          stationNumber: useStationNumber,
+          stationName: useStationName
         }),
       });
 
@@ -467,15 +582,19 @@ const JobExecute: React.FC = () => {
 
       const kitExecution = await kitExecutionResponse.json();
       console.log('🔧 Kit execution response:', kitExecution);
-      console.log('🔧 Setting currentKitExecutionId to:', kitExecution.id);
-      setCurrentKitExecutionId(kitExecution.id);
+      console.log('🔍 BEFORE setting currentKitExecutionId - current value:', currentKitExecutionId.current);
+      console.log('🔍 SETTING currentKitExecutionId to:', kitExecution.id);
+      currentKitExecutionId.current = kitExecution.id;
+      console.log('🔍 AFTER setting currentKitExecutionId - new value:', currentKitExecutionId.current);
 
       const newKit = {
         kitNumber,
         startTime,
         currentStepIndex: 0,
         stepStartTime: startTime,
-        completed: false
+        completed: false,
+        stationNumber: useStationNumber,
+        stationName: useStationName
       };
 
       setJobProgress(prev => prev ? {
@@ -500,6 +619,10 @@ const JobExecute: React.FC = () => {
   };
 
   const completeKit = async () => {
+    console.log('🔍 COMPLETE KIT CALLED - currentKitExecutionId:', currentKitExecutionId.current);
+    console.log('🔍 jobProgress:', jobProgress);
+    console.log('🔍 selectedJob:', selectedJob);
+
     if (!selectedJob || !jobProgress || !jobProgress.currentKit || !jobProgress.id) {
       console.error('🔧 Missing required data:', {
         hasSelectedJob: !!selectedJob,
@@ -514,33 +637,21 @@ const JobExecute: React.FC = () => {
     try {
       const kitNumber = jobProgress.currentKit.kitNumber;
       console.log('🔧 Completing kit:', kitNumber, 'for job progress ID:', jobProgress.id);
+      console.log('🔧 Using stored currentKitExecutionId:', currentKitExecutionId.current);
 
-      // Fetch the current kit execution ID from the database
-      const fetchUrl = apiUrl(`/api/kit-executions?jobProgressId=${jobProgress.id}`);
-      console.log('🔧 Fetching kit executions from:', fetchUrl);
-      const kitExecutionsResponse = await fetch(fetchUrl);
+      // Use the stored kit execution ID instead of searching
+      if (!currentKitExecutionId.current) {
+        console.error('🔧 Current kit execution ID not found in ref - auto-starting kit first');
+        // Auto-start a kit for this station if it doesn't have one yet
+        const nextKitForStation = stationKitsCompleted + 1;
+        await startNewKit(nextKitForStation);
 
-      if (!kitExecutionsResponse.ok) {
-        const errorText = await kitExecutionsResponse.text();
-        console.error('🔧 Failed to fetch kit executions:', errorText);
-        throw new Error(`Failed to fetch kit executions: ${errorText}`);
+        // After starting, check again
+        if (!currentKitExecutionId.current) {
+          alert('Failed to start kit. Please refresh and try again.');
+          return;
+        }
       }
-
-      const kitExecutions = await kitExecutionsResponse.json();
-      console.log('🔧 Found kit executions:', kitExecutions);
-
-      const currentKitExecution = kitExecutions.find(
-        (ke: any) => ke.kitNumber === kitNumber && !ke.completed
-      );
-
-      if (!currentKitExecution) {
-        console.error('🔧 Current kit execution not found. Kit executions:', kitExecutions, 'Looking for kit number:', kitNumber);
-        throw new Error(`Current kit execution not found for kit #${kitNumber}`);
-      }
-
-      console.log('🔧 Found kit execution:', currentKitExecution.id);
-
-      console.log('🔧 Found kit execution:', currentKitExecution.id);
       const endTime = new Date().toISOString();
       const actualDuration = timerState.kitStartTime ?
         Math.floor((Date.now() - timerState.kitStartTime) / 1000) : 0;
@@ -565,7 +676,7 @@ const JobExecute: React.FC = () => {
       });
 
       // Update KitExecution record with completion data
-      const kitExecutionUpdateResponse = await fetch(apiUrl(`/api/kit-executions/${currentKitExecution.id}`), {
+      const kitExecutionUpdateResponse = await fetch(apiUrl(`/api/kit-executions/${currentKitExecutionId.current}`), {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -591,12 +702,12 @@ const JobExecute: React.FC = () => {
       const newCompletedKits = jobProgress.completedKits + 1;
       const newRemainingKits = selectedJob.orderedQuantity - newCompletedKits;
 
-      // Update progress in database
+      // Update progress in database - NOTE: NOT updating currentKitNumber
+      // because each station tracks its own kit independently
       const progressData = {
         jobId: selectedJob.id,
         completedKits: newCompletedKits,
         remainingKits: newRemainingKits,
-        currentKitNumber: newRemainingKits > 0 ? newCompletedKits + 1 : null,
         isActive: newRemainingKits > 0,
         endTime: newRemainingKits > 0 ? null : new Date().toISOString()
       };
@@ -612,6 +723,11 @@ const JobExecute: React.FC = () => {
       if (!progressResponse.ok) {
         throw new Error('Failed to update progress');
       }
+
+      // Increment station's kit counter and calculate next kit number
+      const newStationCount = stationKitsCompleted + 1;
+      setStationKitsCompleted(newStationCount);
+      console.log(`✅ Station ${stationNumber} completed kit ${kitNumber} (Station total: ${newStationCount})`);
 
       // Dispatch event to notify other components that jobs have been updated
       window.dispatchEvent(new CustomEvent('jobsUpdated'));
@@ -642,10 +758,10 @@ const JobExecute: React.FC = () => {
       } : null);
 
       if (newRemainingKits > 0) {
-        // Immediately start the next kit with explicit kit number
-        const nextKitNumber = newCompletedKits + 1;
-        console.log('🔧 About to start next kit:', nextKitNumber);
-        startNewKit(nextKitNumber);
+        // Start the next kit for this station (station's next kit number)
+        const nextKitNumberForStation = newStationCount + 1;
+        console.log(`🔧 Station ${stationNumber} starting next kit: ${nextKitNumberForStation}`);
+        startNewKit(nextKitNumberForStation);
       } else {
         // Job completed - update job status
         const jobUpdateResponse = await fetch(apiUrl(`/api/kitting-jobs/${selectedJob.id}`), {
@@ -768,7 +884,6 @@ const JobExecute: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-100 p-4">
       <div className="container mx-auto max-w-6xl">
-
         {/* Job Timing Strip - Only shown for STEPS and TARGET interfaces */}
         {selectedJob.executionInterface !== 'BASIC' && (
           <div className="bg-white rounded-lg shadow-sm mb-2 p-4">
@@ -810,19 +925,70 @@ const JobExecute: React.FC = () => {
               customerName={selectedJob.customerName}
               currentKitNumber={jobProgress.currentKit.kitNumber}
               totalKits={selectedJob.orderedQuantity}
+              totalCompletedKits={jobProgress.completedKits}
+              stationKitsCompleted={stationKitsCompleted}
               currentElapsedKitTime={currentElapsedKitTime}
               expectedKitDuration={selectedJob.expectedKitDuration}
               performanceStatus={timingAnalytics.overallPerformanceStatus}
               onCompleteKit={completeKit}
               isPaused={timerState.isPaused}
+              stationName={jobProgress.currentKit.stationName || stationName}
             />
           ) : (
-            <div className="bg-white rounded-lg shadow-2xl p-12 text-center border-4 border-green-200 mb-2">
-              <div className="text-8xl text-green-500 mb-6">✓</div>
-              <div className="text-3xl text-gray-600">
-                {selectedJob?.status === 'COMPLETED' || jobProgress?.remainingKits === 0
-                  ? 'Job Complete!'
-                  : 'Starting Next Kit...'}
+            <div className="flex flex-col h-screen w-full bg-gradient-to-br from-blue-50 to-gray-100 p-4">
+              {/* Combined Info Card - Same layout as BasicExecutionView */}
+              <div className="bg-white rounded-lg shadow-md p-4 mb-4">
+                <div className="grid grid-cols-4 gap-4">
+                  {/* Job & Customer */}
+                  <div>
+                    <h2 className="text-lg font-bold text-gray-800">Job {selectedJob.jobNumber}</h2>
+                    <p className="text-sm text-gray-600">{selectedJob.customerName}</p>
+                  </div>
+
+                  {/* Time Remaining - Placeholder */}
+                  <div className="text-center">
+                    <p className="text-xs text-gray-500 mb-1">Time Remaining</p>
+                    <p className="text-3xl font-mono font-bold text-gray-700">
+                      {formatDuration(selectedJob.expectedKitDuration)}
+                    </p>
+                  </div>
+
+                  {/* Station */}
+                  <div className="text-center">
+                    <p className="text-xs text-gray-500 mb-1">Station</p>
+                    <div className="flex items-center justify-center gap-2">
+                      <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                      </svg>
+                      <span className="text-2xl font-bold text-blue-800">
+                        {stationName || 'Assigning...'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Kit Counter */}
+                  <div className="text-right">
+                    <p className="text-xs text-gray-500 mb-1">Progress</p>
+                    <p className="text-3xl font-bold text-gray-800">
+                      {jobProgress.completedKits} / {selectedJob.orderedQuantity}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      Station: {stationKitsCompleted} kits
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Loading Message */}
+              <div className="flex-1 flex items-center justify-center pb-4">
+                <div className="text-center">
+                  <div className="text-8xl text-green-500 mb-6 animate-pulse">✓</div>
+                  <div className="text-3xl text-gray-600">
+                    {selectedJob?.status === 'COMPLETED' || jobProgress?.remainingKits === 0
+                      ? 'Job Complete!'
+                      : 'Starting Next Kit...'}
+                  </div>
+                </div>
               </div>
             </div>
           )

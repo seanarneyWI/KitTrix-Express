@@ -149,6 +149,15 @@ app.patch('/api/kitting-jobs/:jobId', async (req, res) => {
       }
     });
 
+    // Reset station counter when job status changes to IN_PROGRESS
+    if (updateData.status === 'IN_PROGRESS' && job.jobProgress) {
+      await prisma.jobProgress.update({
+        where: { id: job.jobProgress.id },
+        data: { nextStationNumber: 0 }
+      });
+      console.log('🔧 Reset station counter for job:', jobId);
+    }
+
     res.json(job);
   } catch (error) {
     console.error('Error updating job:', error);
@@ -182,6 +191,12 @@ app.post('/api/job-progress', async (req, res) => {
   try {
     const progressData = req.body;
 
+    // If this is a new job start (has startTime and completedKits is 0), reset station counter
+    if (progressData.startTime && progressData.completedKits === 0) {
+      progressData.nextStationNumber = 0;
+      console.log('🔧 Resetting station counter for new job start');
+    }
+
     const progress = await prisma.jobProgress.upsert({
       where: { jobId: progressData.jobId },
       update: progressData,
@@ -210,6 +225,90 @@ app.delete('/api/job-progress/:jobId', async (req, res) => {
   } catch (error) {
     console.error('Error deleting progress:', error);
     res.status(500).json({ error: 'Failed to delete progress' });
+  }
+});
+
+// Assign station number to a new execution interface
+app.post('/api/job-progress/:id/assign-station', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Atomically increment nextStationNumber and return the new value
+    const updated = await prisma.jobProgress.update({
+      where: { id },
+      data: {
+        nextStationNumber: {
+          increment: 1
+        }
+      },
+      select: {
+        nextStationNumber: true
+      }
+    });
+
+    const stationNumber = updated.nextStationNumber;
+    const stationName = `Station ${stationNumber}`;
+
+    console.log(`📍 Assigned ${stationName} for job progress ${id}`);
+
+    res.json({
+      stationNumber,
+      stationName
+    });
+  } catch (error) {
+    console.error('Error assigning station:', error);
+    res.status(500).json({ error: 'Failed to assign station' });
+  }
+});
+
+// Reset all station counters (admin/debug endpoint)
+app.post('/api/job-progress/reset-all-stations', async (req, res) => {
+  try {
+    const result = await prisma.jobProgress.updateMany({
+      data: { nextStationNumber: 0 }
+    });
+
+    console.log(`🔧 Reset all station counters (${result.count} jobs)`);
+    res.json({ message: `Reset ${result.count} station counters to 0` });
+  } catch (error) {
+    console.error('Error resetting station counters:', error);
+    res.status(500).json({ error: 'Failed to reset station counters' });
+  }
+});
+
+// Release station number when execution interface is closed
+app.post('/api/job-progress/:id/release-station', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Atomically decrement nextStationNumber (but never go below 0)
+    const current = await prisma.jobProgress.findUnique({
+      where: { id },
+      select: { nextStationNumber: true }
+    });
+
+    if (current && current.nextStationNumber > 0) {
+      const updated = await prisma.jobProgress.update({
+        where: { id },
+        data: {
+          nextStationNumber: {
+            decrement: 1
+          }
+        },
+        select: {
+          nextStationNumber: true
+        }
+      });
+
+      console.log(`📍 Released station for job progress ${id}, now at ${updated.nextStationNumber}`);
+      res.json({ nextStationNumber: updated.nextStationNumber });
+    } else {
+      console.log(`📍 Station already at 0 for job progress ${id}`);
+      res.json({ nextStationNumber: 0 });
+    }
+  } catch (error) {
+    console.error('Error releasing station:', error);
+    res.status(500).json({ error: 'Failed to release station' });
   }
 });
 
@@ -338,14 +437,16 @@ app.post('/api/analytics', async (req, res) => {
 // Kit Execution API
 app.post('/api/kit-executions', async (req, res) => {
   try {
-    const { jobProgressId, kitNumber, startTime } = req.body;
+    const { jobProgressId, kitNumber, startTime, stationNumber, stationName } = req.body;
 
     const kitExecution = await prisma.kitExecution.create({
       data: {
         jobProgressId,
         kitNumber,
         startTime: new Date(startTime),
-        completed: false
+        completed: false,
+        stationNumber: stationNumber || null,
+        stationName: stationName || null
       }
     });
 
