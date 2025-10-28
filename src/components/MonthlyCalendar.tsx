@@ -83,7 +83,12 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
   };
 
   const getEventsForDate = (date: string) => {
-    return events.filter(event => event.date === date);
+    const filtered = events.filter(event => event.date === date);
+    if (date === '2025-10-27' && filtered.length > 0) {
+      console.log(`📅 MonthlyCalendar filtering for ${date}: Found ${filtered.length} events`);
+      console.log('  Events:', filtered.map(e => `${e.id} - ${e.title} (${e.date})`));
+    }
+    return filtered;
   };
 
   const handleDayClick = (date: string) => {
@@ -322,7 +327,7 @@ const DraggableEvent: React.FC<{
         ref={setNodeRef}
         {...customListeners}
         {...attributes}
-        className={`text-xs p-1 rounded cursor-pointer ${event.color} text-white truncate hover:opacity-80 transition-opacity ${
+        className={`text-xs p-1 rounded cursor-pointer ${event.color} text-white hover:opacity-80 transition-opacity ${
           isDragging ? 'opacity-50' : ''
         }`}
         style={{
@@ -346,7 +351,10 @@ const DraggableEvent: React.FC<{
         }}
         onContextMenu={handleContextMenu}
       >
-        {event.startTime} - {event.title}
+        <div className="flex items-center justify-between gap-1">
+          <span className="truncate flex-1">{event.title}</span>
+          <span className="whitespace-nowrap flex-shrink-0 text-white/80">{event.startTime}</span>
+        </div>
       </div>
 
       {/* Context Menu */}

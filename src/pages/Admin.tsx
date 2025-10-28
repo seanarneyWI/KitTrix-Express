@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiUrl } from '../config/api';
+import ShiftControl from '../components/ShiftControl';
+import { type Shift } from '../utils/shiftScheduling';
 
 interface KittingJob {
   id: string;
@@ -37,7 +39,7 @@ interface User {
 }
 
 const Admin: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'manage' | 'users'>('manage');
+  const [activeTab, setActiveTab] = useState<'manage' | 'users' | 'shifts'>('manage');
   const [existingJobs, setExistingJobs] = useState<KittingJob[]>([]);
   const [jobStatusFilter, setJobStatusFilter] = useState<string>('IN_PROGRESS');
   const [filteredJobs, setFilteredJobs] = useState<KittingJob[]>([]);
@@ -208,6 +210,16 @@ const Admin: React.FC = () => {
               >
                 Manage Users
               </button>
+              <button
+                onClick={() => setActiveTab('shifts')}
+                className={`py-4 px-6 text-sm font-medium ${
+                  activeTab === 'shifts'
+                    ? 'border-b-2 border-blue-500 text-blue-600'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Work Shifts
+              </button>
             </nav>
           </div>
 
@@ -375,7 +387,7 @@ const Admin: React.FC = () => {
                   )}
                 </div>
               </>
-            ) : (
+            ) : activeTab === 'users' ? (
               <>
                 <div className="flex justify-between items-center mb-6">
                   <h1 className="text-2xl font-bold text-gray-800">User Management</h1>
@@ -418,7 +430,18 @@ const Admin: React.FC = () => {
                   )}
                 </div>
               </>
-            )}
+            ) : activeTab === 'shifts' ? (
+              <>
+                <div className="flex justify-between items-center mb-6">
+                  <h1 className="text-2xl font-bold text-gray-800">Work Shift Management</h1>
+                </div>
+                <ShiftControl onShiftsChange={(activeShifts) => {
+                  console.log('Active shifts updated:', activeShifts);
+                  // Dispatch event to notify Dashboard of shift changes
+                  window.dispatchEvent(new CustomEvent('shiftsUpdated', { detail: activeShifts }));
+                }} />
+              </>
+            ) : null}
           </div>
         </div>
       </div>

@@ -62,7 +62,12 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
   };
 
   const getEventsForDate = (date: string) => {
-    return events.filter(event => event.date === date);
+    const filtered = events.filter(event => event.date === date);
+    console.log(`📆 DailyCalendar filtering for ${date}: Found ${filtered.length} events out of ${events.length} total`);
+    if (filtered.length > 0) {
+      console.log('  Events:', filtered.map(e => `${e.id} - ${e.title}`));
+    }
+    return filtered;
   };
 
   const formatTime = (time: string) => {

@@ -8,6 +8,11 @@ import { Event } from '../types/event';
 import { KittingJob } from '../types/kitting';
 import { formatDuration } from '../utils/kittingCalculations';
 import { apiUrl } from '../config/api';
+import {
+  type Shift,
+  scheduleJobForward,
+  getActiveShifts
+} from '../utils/shiftScheduling';
 
 const Dashboard: React.FC = () => {
   const [events, setEvents] = useState<Event[]>([]);
@@ -18,6 +23,7 @@ const Dashboard: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [currentDate, setCurrentDate] = useState<string>('');
   const [mounted, setMounted] = useState(false);
+  const [activeShifts, setActiveShifts] = useState<Shift[]>([]);
 
   const [modalState, setModalState] = useState<{
     isOpen: boolean;
@@ -32,6 +38,7 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     setMounted(true);
     setCurrentDate(new Date().toISOString().split('T')[0]);
+    loadActiveShifts();
     fetchKittingJobs();
 
     // Listen for job update events from other components
@@ -56,6 +63,24 @@ const Dashboard: React.FC = () => {
       window.removeEventListener('focus', handleWindowFocus);
     };
   }, []);
+
+  const loadActiveShifts = async () => {
+    try {
+      const shifts = await getActiveShifts();
+      setActiveShifts(shifts);
+      console.log('Loaded active shifts:', shifts.length);
+    } catch (error) {
+      console.error('Failed to load active shifts:', error);
+      // Continue with empty shifts array (will fallback to 24/7 scheduling)
+    }
+  };
+
+  const handleShiftsChange = (updatedActiveShifts: Shift[]) => {
+    setActiveShifts(updatedActiveShifts);
+    console.log('Active shifts updated:', updatedActiveShifts.length);
+    // Re-render calendar with new shift configuration
+    // The calendar will automatically update because kittingJobToEvents depends on activeShifts
+  };
 
   const fetchKittingJobs = async () => {
     try {
@@ -128,105 +153,125 @@ const Dashboard: React.FC = () => {
   };
 
   /**
-   * Convert kitting job to calendar event format with proper duration calculation
+   * Convert kitting job to calendar event format with shift-based scheduling
    *
-   * This function handles both single-day and multi-day job scheduling:
-   * - Single-day jobs: Fit within a 9-hour work day (8 AM - 5 PM)
-   * - Multi-day jobs: Automatically span across multiple work days
+   * This function uses shift-based forward scheduling:
+   * - Jobs are scheduled FORWARD from start time (not backward from due date)
+   * - Duration accounts for active shifts, breaks, and non-working hours
+   * - Multi-day jobs automatically span across shifts
    *
    * @param job - KittingJob object containing duration and scheduling data
    * @returns Array of Event objects representing the job on the calendar
    */
   const kittingJobToEvents = (job: any): Event[] => {
     try {
-      console.log('Converting job to events:', job.jobNumber);
+      console.log('🔄 Converting job to events (shift-based):', job.jobNumber);
 
-      // Determine the base date for scheduling
-      // Priority: scheduledDate > dueDate
-      const baseDate = job.scheduledDate ? new Date(job.scheduledDate) : new Date(job.dueDate);
-      const baseDateStr = baseDate.toISOString().split('T')[0];
-
-      // Determine start time for the job
-      // Priority: scheduledStartTime > default 8:00 AM
+      // Determine the start date and time for the job
+      // Priority: scheduledDate/scheduledStartTime > current date/8:00 AM
+      const startDate = job.scheduledDate ? new Date(job.scheduledDate) : new Date();
       const startTimeStr = job.scheduledStartTime || '08:00';
 
-      // Convert job duration from seconds to hours for calculation
-      // expectedJobDuration is stored in seconds in the database
-      const jobDurationHours = job.expectedJobDuration / 3600;
+      console.log(`  📅 Job ${job.jobNumber}: scheduledDate=${job.scheduledDate}, startDate=${startDate.toISOString()}, startTime=${startTimeStr}`);
 
-      // Parse the start time into a Date object for calculations
+      // Create full start datetime
       const [startHours, startMinutes] = startTimeStr.split(':').map(Number);
-      const startTimeDate = new Date();
-      startTimeDate.setHours(startHours, startMinutes, 0, 0);
+      startDate.setHours(startHours, startMinutes, 0, 0);
 
-      // Calculate theoretical end time (used for single-day jobs)
-      const endTimeDate = new Date(startTimeDate.getTime() + (job.expectedJobDuration * 1000));
+      // Use shift-based forward scheduling if shifts are available
+      if (activeShifts.length > 0) {
+        const endDate = scheduleJobForward(startDate, job.expectedJobDuration, activeShifts);
 
-      // Initialize events array to hold all calendar events for this job
-      const events: Event[] = [];
+        // For now, create a single event spanning from start to end
+        // TODO: In Sprint 3, split this into per-day events for multi-day jobs
+        const startDateStr = startDate.toISOString().split('T')[0];
+        const endDateStr = endDate.toISOString().split('T')[0];
+        const endTimeStr = `${String(endDate.getHours()).padStart(2, '0')}:${String(endDate.getMinutes()).padStart(2, '0')}`;
 
-      // Define work day parameters for multi-day job logic
-      const workDayHours = 9; // Standard work day: 8 AM to 5 PM = 9 hours
-      const workDayStart = 8; // 8 AM start time
-      const workDayEnd = 17; // 5 PM
+        // If job spans multiple days, create events for each day
+        if (startDateStr !== endDateStr) {
+          console.log(`  📊 Multi-day job detected: ${startDateStr} to ${endDateStr}`);
+          const events: Event[] = [];
+          let currentDate = new Date(startDate);
+          let dayCounter = 0;
 
-      if (jobDurationHours <= workDayHours) {
+          while (currentDate <= endDate && dayCounter < 30) {
+            const currentDateStr = currentDate.toISOString().split('T')[0];
+            const isLastDay = currentDateStr === endDateStr;
+            const isFirstDay = dayCounter === 0;
+
+            const dayStartTime = isFirstDay
+              ? startTimeStr
+              : activeShifts[0]?.startTime || '08:00';
+
+            let dayEndTime = isLastDay
+              ? endTimeStr
+              : activeShifts[activeShifts.length - 1]?.endTime || '17:00';
+
+            // Handle overnight shifts: if end time is before start time, it means the shift
+            // ends the next day. For calendar display, cap at 23:59 for intermediate days.
+            const startMinutes = parseInt(dayStartTime.split(':')[0]) * 60 + parseInt(dayStartTime.split(':')[1]);
+            const endMinutes = parseInt(dayEndTime.split(':')[0]) * 60 + parseInt(dayEndTime.split(':')[1]);
+
+            if (!isLastDay && endMinutes <= startMinutes) {
+              // Overnight shift - use 23:59 as end time for this day
+              dayEndTime = '23:59';
+              console.log(`    ⚠️ Overnight shift detected, using 23:59 as end time for display`);
+            }
+
+            console.log(`    Day ${dayCounter + 1}: ${currentDateStr} ${dayStartTime}-${dayEndTime}`);
+
+            events.push({
+              id: `kj-${job.id}-day-${dayCounter}`,
+              title: `${job.jobNumber} - ${job.description}${events.length > 0 ? ` (Day ${dayCounter + 1})` : ''}`,
+              date: currentDateStr,
+              startTime: dayStartTime,
+              endTime: dayEndTime,
+              description: `${job.customerName} | ${job.orderedQuantity} kits | ${formatDuration(job.expectedJobDuration)} | Due: ${job.dueDate}`,
+              color: getKittingJobColor(job.status),
+              type: 'kitting-job',
+              kittingJob: job
+            });
+
+            currentDate.setDate(currentDate.getDate() + 1);
+            dayCounter++;
+          }
+
+          console.log(`  ✅ Created ${events.length} day-events for ${job.jobNumber}`);
+          return events;
+        }
+
         // Single day job
-        const endTimeStr = String(endTimeDate.getHours()).padStart(2, '0') + ':' +
-                          String(endTimeDate.getMinutes()).padStart(2, '0');
-
-        // Make sure we don't go past 5 PM on a single day
-        const maxEndTime = endTimeDate.getHours() > workDayEnd ? '17:00' : endTimeStr;
-
-        events.push({
+        console.log(`  ✅ Single-day job: ${startDateStr} ${startTimeStr}-${endTimeStr}`);
+        return [{
           id: `kj-${job.id}`,
           title: `${job.jobNumber} - ${job.description}`,
-          date: baseDateStr,
+          date: startDateStr,
           startTime: startTimeStr,
-          endTime: maxEndTime,
-          description: `${job.customerName} | ${job.orderedQuantity} kits | ${formatDuration(job.expectedJobDuration)} | Due: ${baseDateStr}`,
+          endTime: endTimeStr,
+          description: `${job.customerName} | ${job.orderedQuantity} kits | ${formatDuration(job.expectedJobDuration)} | Due: ${job.dueDate}`,
           color: getKittingJobColor(job.status),
           type: 'kitting-job',
           kittingJob: job
-        });
-      } else {
-        // Multi-day job - split across work days
-        let remainingHours = jobDurationHours;
-        let currentDate = new Date(baseDate);
-        let currentStartTime = startHours;
-        let dayCounter = 0;
-
-        while (remainingHours > 0 && dayCounter < 30) { // Safety limit of 30 days
-          const currentDateStr = currentDate.toISOString().split('T')[0];
-          const hoursForThisDay = Math.min(remainingHours, workDayEnd - currentStartTime);
-
-          const dayStartTimeStr = String(currentStartTime).padStart(2, '0') + ':00';
-          const dayEndHours = currentStartTime + hoursForThisDay;
-          const dayEndTimeStr = String(Math.floor(dayEndHours)).padStart(2, '0') + ':' +
-                               String(Math.round((dayEndHours % 1) * 60)).padStart(2, '0');
-
-          events.push({
-            id: `kj-${job.id}-day-${dayCounter}`,
-            title: `${job.jobNumber} - ${job.description} (Day ${dayCounter + 1})`,
-            date: currentDateStr,
-            startTime: dayStartTimeStr,
-            endTime: dayEndTimeStr,
-            description: `${job.customerName} | ${job.orderedQuantity} kits | Total: ${formatDuration(job.expectedJobDuration)} | Due: ${baseDateStr}`,
-            color: getKittingJobColor(job.status),
-            type: 'kitting-job',
-            kittingJob: job
-          });
-
-          remainingHours -= hoursForThisDay;
-
-          // Move to next work day
-          currentDate.setDate(currentDate.getDate() + 1);
-          currentStartTime = workDayStart; // Start at 8 AM for subsequent days
-          dayCounter++;
-        }
+        }];
       }
 
-      return events;
+      // Fallback to 24/7 scheduling if no shifts configured
+      console.warn('No active shifts - using 24/7 scheduling for', job.jobNumber);
+      const endDate = new Date(startDate.getTime() + job.expectedJobDuration * 1000);
+      const endTimeStr = `${String(endDate.getHours()).padStart(2, '0')}:${String(endDate.getMinutes()).padStart(2, '0')}`;
+
+      return [{
+        id: `kj-${job.id}`,
+        title: `${job.jobNumber} - ${job.description}`,
+        date: startDate.toISOString().split('T')[0],
+        startTime: startTimeStr,
+        endTime: endTimeStr,
+        description: `${job.customerName} | ${job.orderedQuantity} kits | ${formatDuration(job.expectedJobDuration)} | Due: ${job.dueDate}`,
+        color: getKittingJobColor(job.status),
+        type: 'kitting-job',
+        kittingJob: job
+      }];
     } catch (error) {
       console.error('Error converting job to events:', job.jobNumber, error);
       return [];
@@ -249,6 +294,16 @@ const Dashboard: React.FC = () => {
     ...events,
     ...kittingJobs.flatMap(kittingJobToEvents)
   ];
+
+  // Log all calendar items for debugging
+  console.log(`📋 Total calendar items: ${allCalendarItems.length}`);
+  const oct27Items = allCalendarItems.filter(item => item.date === '2025-10-27');
+  if (oct27Items.length > 0) {
+    console.log(`📍 Items for Oct 27: ${oct27Items.length}`);
+    oct27Items.forEach(item => {
+      console.log(`  - ${item.id}: ${item.title} (${item.startTime}-${item.endTime})`);
+    });
+  }
 
   // Filter based on view mode
   const filteredItems = allCalendarItems.filter(item => {

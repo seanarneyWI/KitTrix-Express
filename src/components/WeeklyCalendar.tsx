@@ -241,11 +241,11 @@ const WeeklyCalendar: React.FC<WeeklyCalendarProps> = ({
               </div>
             ))}
 
-            {/* Vertically stacked events per day */}
+            {/* Time-proportional event widgets per day */}
             <div className="absolute inset-0 pointer-events-none">
               {weekDays.map((day, dayIndex) => {
                 const dateStr = formatDate(day);
-                const dayEvents = getEventsForDate(dateStr).slice(0, 3); // Limit to 3 events for weekly view
+                const dayEvents = getEventsForDate(dateStr);
 
                 return (
                   <div
@@ -256,12 +256,29 @@ const WeeklyCalendar: React.FC<WeeklyCalendarProps> = ({
                       width: '12.5%'
                     }}
                   >
-                    <div className="p-1 space-y-1 h-full overflow-hidden">
-                      {dayEvents.map((event, eventIndex) => (
+                    {dayEvents.map((event) => {
+                      // Calculate position and height based on time
+                      const startHour = parseInt(event.startTime.split(':')[0]);
+                      const startMinute = parseInt(event.startTime.split(':')[1]);
+                      const endHour = parseInt(event.endTime.split(':')[0]);
+                      const endMinute = parseInt(event.endTime.split(':')[1]);
+
+                      const startInMinutes = startHour * 60 + startMinute;
+                      const endInMinutes = endHour * 60 + endMinute;
+                      const durationInMinutes = endInMinutes - startInMinutes;
+
+                      // Each hour slot is 48px (h-12), so each minute is 0.8px
+                      const pixelsPerMinute = 48 / 60;
+                      const top = startInMinutes * pixelsPerMinute;
+                      const height = Math.max(durationInMinutes * pixelsPerMinute, 24); // Min height of 24px
+
+                      return (
                         <div
                           key={event.id}
-                          className={`text-xs p-1 rounded cursor-pointer ${event.color} text-white truncate hover:opacity-80 transition-opacity`}
+                          className={`absolute left-0.5 right-0.5 p-1.5 rounded shadow-sm cursor-pointer ${event.color} text-white overflow-hidden hover:shadow-md transition-shadow`}
                           style={{
+                            top: `${top}px`,
+                            height: `${height}px`,
                             WebkitTouchCallout: 'none',
                             WebkitUserSelect: 'none',
                             KhtmlUserSelect: 'none',
@@ -282,15 +299,13 @@ const WeeklyCalendar: React.FC<WeeklyCalendarProps> = ({
                           }}
                           onContextMenu={(e) => handleEventContextMenu(e, event)}
                         >
-                          {event.startTime} - {event.title}
+                          <div className="flex items-start justify-between gap-1 h-full">
+                            <div className="text-xs font-semibold truncate flex-1">{event.title}</div>
+                            <div className="text-xs opacity-90 whitespace-nowrap flex-shrink-0">{formatTime(event.startTime)}</div>
+                          </div>
                         </div>
-                      ))}
-                      {getEventsForDate(dateStr).length > 3 && (
-                        <div className="text-xs text-gray-500 font-medium">
-                          +{getEventsForDate(dateStr).length - 3} more
-                        </div>
-                      )}
-                    </div>
+                      );
+                    })}
                   </div>
                 );
               })}

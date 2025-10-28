@@ -102,16 +102,18 @@ const DurationBasedEvent: React.FC<DurationBasedEventProps> = ({
       {/* Event Content */}
       <div className="p-1 h-full flex flex-col justify-start text-base">
         {shouldShowTitle && (
-          <div className="font-semibold truncate leading-tight">
-            {event.title}
+          <div className="flex items-start justify-between gap-1">
+            <div className="font-semibold truncate leading-tight flex-1">
+              {event.title}
+            </div>
+            <div className="text-white/90 text-sm leading-tight whitespace-nowrap flex-shrink-0">
+              {formatTime(event.startTime)}
+            </div>
           </div>
         )}
 
         {shouldShowDetails && (
           <>
-            <div className="text-white/90 text-sm mt-0.5 leading-tight">
-              {formatTime(event.startTime)} - {formatTime(event.endTime)}
-            </div>
             {event.description && height >= 80 && (
               <div className="text-white/80 text-sm mt-1 leading-tight overflow-hidden">
                 {event.description}

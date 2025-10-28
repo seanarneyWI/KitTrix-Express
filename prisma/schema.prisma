@@ -286,6 +286,22 @@ model JobAssignment {
   @@map("job_assignments")
 }
 
+model Shift {
+  id            String   @id @default(cuid())
+  name          String   // "First Shift", "Second Shift", "Third Shift"
+  startTime     String   @map("start_time")  // "07:00" (24-hour format)
+  endTime       String   @map("end_time")    // "15:00" (24-hour format)
+  breakStart    String?  @map("break_start") // "11:00" (optional break start time)
+  breakDuration Int?     @map("break_duration") // 30 (minutes)
+  isActive      Boolean  @default(true) @map("is_active") // Toggle on/off
+  order         Int      // 1, 2, 3 for display order
+  color         String?  // "#e3f2fd" for visual background on calendar
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("shifts")
+}
+
 model Company {
   id                         Int       @id @default(autoincrement())
   companyName                String    @map("company_name")

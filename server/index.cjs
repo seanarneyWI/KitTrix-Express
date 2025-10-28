@@ -165,6 +165,22 @@ app.patch('/api/kitting-jobs/:jobId', async (req, res) => {
   }
 });
 
+app.delete('/api/kitting-jobs/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+
+    await prisma.kittingJob.delete({
+      where: { id: jobId }
+    });
+
+    console.log(`🗑️ Deleted kitting job: ${jobId}`);
+    res.json({ message: 'Job deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting job:', error);
+    res.status(500).json({ error: 'Failed to delete job' });
+  }
+});
+
 // Job Progress API
 app.get('/api/job-progress', async (req, res) => {
   try {
@@ -309,6 +325,72 @@ app.post('/api/job-progress/:id/release-station', async (req, res) => {
   } catch (error) {
     console.error('Error releasing station:', error);
     res.status(500).json({ error: 'Failed to release station' });
+  }
+});
+
+// Shifts API
+app.get('/api/shifts', async (req, res) => {
+  try {
+    const { activeOnly } = req.query;
+
+    let where = {};
+    if (activeOnly === 'true') {
+      where.isActive = true;
+    }
+
+    const shifts = await prisma.shift.findMany({
+      where,
+      orderBy: { order: 'asc' }
+    });
+
+    res.json(shifts);
+  } catch (error) {
+    console.error('Error fetching shifts:', error);
+    res.status(500).json({ error: 'Failed to fetch shifts' });
+  }
+});
+
+app.patch('/api/shifts/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+
+    const shift = await prisma.shift.update({
+      where: { id },
+      data: updateData
+    });
+
+    console.log(`⏰ Updated shift ${shift.name} (isActive: ${shift.isActive})`);
+    res.json(shift);
+  } catch (error) {
+    console.error('Error updating shift:', error);
+    res.status(500).json({ error: 'Failed to update shift' });
+  }
+});
+
+app.put('/api/shifts/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, startTime, endTime, breakStart, breakDuration, order, color } = req.body;
+
+    const shift = await prisma.shift.update({
+      where: { id },
+      data: {
+        name,
+        startTime,
+        endTime,
+        breakStart,
+        breakDuration,
+        order,
+        color
+      }
+    });
+
+    console.log(`⏰ Updated shift details for ${shift.name}`);
+    res.json(shift);
+  } catch (error) {
+    console.error('Error updating shift details:', error);
+    res.status(500).json({ error: 'Failed to update shift details' });
   }
 });
 
