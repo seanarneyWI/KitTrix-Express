@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import WeeklyCalendar from '../components/WeeklyCalendar';
 import MonthlyCalendar from '../components/MonthlyCalendar';
 import DailyCalendar from '../components/DailyCalendar';
@@ -380,6 +381,10 @@ const Dashboard: React.FC = () => {
   };
 
   const updateKittingJobSchedule = async (jobId: string, newDate: string, newTime: string) => {
+    // Find the job to get its number for the toast message
+    const job = kittingJobs.find(j => j.id === jobId);
+    const jobNumber = job?.jobNumber || jobId;
+
     // Optimistic update: update UI immediately
     const previousJobs = [...kittingJobs];
     const updatedJobs = kittingJobs.map(job => {
@@ -393,6 +398,12 @@ const Dashboard: React.FC = () => {
       return job;
     });
     setKittingJobs(updatedJobs);
+
+    // Format date for display
+    const displayDate = new Date(newDate + 'T12:00:00').toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric'
+    });
 
     try {
       const url = apiUrl(`/api/kitting-jobs?id=${jobId}`);
@@ -416,16 +427,28 @@ const Dashboard: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         console.log('✅ Job updated successfully:', data);
+
+        // Show success toast
+        toast.success(`Job ${jobNumber} rescheduled to ${displayDate} at ${newTime}`);
+
         // Refresh from server to get accurate recalculated data
         fetchKittingJobs();
       } else {
         const errorText = await response.text();
         console.error('❌ Failed to update job schedule:', response.status, errorText);
+
+        // Show error toast
+        toast.error(`Failed to reschedule job ${jobNumber}`);
+
         // Revert to previous state on error
         setKittingJobs(previousJobs);
       }
     } catch (error) {
       console.error('❌ Error updating kitting job schedule:', error);
+
+      // Show error toast
+      toast.error(`Error rescheduling job ${jobNumber}`);
+
       // Revert to previous state on error
       setKittingJobs(previousJobs);
     }
