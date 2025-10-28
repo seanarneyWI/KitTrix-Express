@@ -103,10 +103,12 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
   const handleDragStart = (event: any) => {
     const { active } = event;
     const dragData = active.data.current as DragData;
+    console.log('🎯 DailyCalendar drag start:', { activeId: active.id, dragData });
 
     if (dragData?.type === 'event') {
       const eventToMove = events.find(e => e.id === dragData.eventId);
       if (eventToMove) {
+        console.log('✅ Found event to move:', eventToMove.title);
         setActiveEvent(eventToMove);
       }
     }
@@ -114,19 +116,32 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
+    console.log('🎯 DailyCalendar drag end:', {
+      activeId: active.id,
+      overId: over?.id,
+      hasOver: !!over
+    });
     setActiveEvent(null);
 
-    if (!over) return;
+    if (!over) {
+      console.log('❌ No drop target');
+      return;
+    }
 
     const dragData = active.data.current as DragData;
     const dropData = over.data.current as { date: string; time: string };
+    console.log('📦 Drag/Drop data:', { dragData, dropData });
 
     if (dragData?.type === 'event' && dropData) {
+      console.log('✅ Moving event:', dragData.eventId, 'to', dropData.date, 'at', dropData.time);
       onMoveEvent(dragData.eventId, dropData.date, dropData.time);
     } else if (dragData?.type === 'resize' && dropData) {
       if (dragData.resizeHandle) {
+        console.log('✅ Resizing event:', dragData.eventId, dragData.resizeHandle, 'to', dropData.time);
         onResizeEvent(dragData.eventId, dragData.resizeHandle, dropData.time);
       }
+    } else {
+      console.log('❌ Invalid drag/drop data:', { dragType: dragData?.type, hasDropData: !!dropData });
     }
   };
 
@@ -373,13 +388,21 @@ const DailyTimeSlot: React.FC<{
   return (
     <div
       ref={setNodeRef}
-      className={`h-16 border-b border-gray-100 transition-colors ${
+      className={`h-16 border-b transition-all relative ${
         isOver
-          ? 'bg-blue-100 border-blue-300'
-          : 'hover:bg-gray-50'
+          ? 'bg-blue-100 border-blue-400 border-2 border-dashed'
+          : 'border-gray-100 hover:bg-gray-50'
       }`}
       onClick={() => onCreateEvent(date, time)}
-    />
+    >
+      {isOver && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="bg-blue-500 text-white px-3 py-1 rounded-full text-sm font-medium shadow-lg">
+            Drop here
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 

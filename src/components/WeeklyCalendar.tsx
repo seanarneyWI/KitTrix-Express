@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { DndContext, DragEndEvent, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable } from '@dnd-kit/core';
+import { DndContext, DragEndEvent, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable, useDraggable } from '@dnd-kit/core';
 import { Event, DragData } from '../types/event';
 import ResizableEvent from './ResizableEvent';
 import JobContextMenu from './JobContextMenu';
@@ -273,37 +273,15 @@ const WeeklyCalendar: React.FC<WeeklyCalendarProps> = ({
                       const height = Math.max(durationInMinutes * pixelsPerMinute, 24); // Min height of 24px
 
                       return (
-                        <div
+                        <DraggableWeeklyEvent
                           key={event.id}
-                          className={`absolute left-0.5 right-0.5 p-1.5 rounded shadow-sm cursor-pointer ${event.color} text-white overflow-hidden hover:shadow-md transition-shadow`}
-                          style={{
-                            top: `${top}px`,
-                            height: `${height}px`,
-                            WebkitTouchCallout: 'none',
-                            WebkitUserSelect: 'none',
-                            KhtmlUserSelect: 'none',
-                            MozUserSelect: 'none',
-                            msUserSelect: 'none',
-                            userSelect: 'none'
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            // Single click does nothing - use double-click or right-click
-                          }}
-                          onDoubleClick={(e) => {
-                            e.stopPropagation();
-                            // Double-click navigates to daily view for any event
-                            if (onNavigateToDay) {
-                              onNavigateToDay(event.date);
-                            }
-                          }}
-                          onContextMenu={(e) => handleEventContextMenu(e, event)}
-                        >
-                          <div className="flex items-start justify-between gap-1 h-full">
-                            <div className="text-xs font-semibold truncate flex-1">{event.title}</div>
-                            <div className="text-xs opacity-90 whitespace-nowrap flex-shrink-0">{formatTime(event.startTime)}</div>
-                          </div>
-                        </div>
+                          event={event}
+                          top={top}
+                          height={height}
+                          formatTime={formatTime}
+                          onNavigateToDay={onNavigateToDay}
+                          onContextMenu={handleEventContextMenu}
+                        />
                       );
                     })}
                   </div>
@@ -358,6 +336,75 @@ const WeeklyCalendar: React.FC<WeeklyCalendarProps> = ({
   );
 };
 
+// Draggable event component for weekly view
+const DraggableWeeklyEvent: React.FC<{
+  event: Event;
+  top: number;
+  height: number;
+  formatTime: (time: string) => string;
+  onNavigateToDay?: (date: string) => void;
+  onContextMenu: (e: React.MouseEvent, event: Event) => void;
+}> = ({ event, top, height, formatTime, onNavigateToDay, onContextMenu }) => {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `weekly-${event.id}`,
+    data: {
+      type: 'event',
+      eventId: event.id,
+    } as DragData,
+  });
+
+  // Custom listeners to prevent drag on right-click
+  const customListeners = {
+    onPointerDown: (e: React.PointerEvent) => {
+      // Only allow dragging on left mouse button (button 0)
+      if (e.button === 0) {
+        // Forward to drag listeners
+        if (listeners?.onPointerDown) {
+          listeners.onPointerDown(e as any);
+        }
+      }
+    },
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...customListeners}
+      {...attributes}
+      className={`absolute left-0.5 right-0.5 p-1.5 rounded shadow-sm cursor-move ${event.color} text-white overflow-hidden hover:shadow-md transition-all ${
+        isDragging ? 'opacity-50' : ''
+      }`}
+      style={{
+        top: `${top}px`,
+        height: `${height}px`,
+        WebkitTouchCallout: 'none',
+        WebkitUserSelect: 'none',
+        KhtmlUserSelect: 'none',
+        MozUserSelect: 'none',
+        msUserSelect: 'none',
+        userSelect: 'none'
+      }}
+      onClick={(e) => {
+        e.stopPropagation();
+        // Single click does nothing - use double-click or right-click
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        // Double-click navigates to daily view for any event
+        if (onNavigateToDay) {
+          onNavigateToDay(event.date);
+        }
+      }}
+      onContextMenu={(e) => onContextMenu(e, event)}
+    >
+      <div className="flex items-start justify-between gap-1 h-full">
+        <div className="text-xs font-semibold truncate flex-1">{event.title}</div>
+        <div className="text-xs opacity-90 whitespace-nowrap flex-shrink-0">{formatTime(event.startTime)}</div>
+      </div>
+    </div>
+  );
+};
+
 // Simple time slot component for drop zones
 const WeeklyTimeSlot: React.FC<{
   date: string;
@@ -372,13 +419,21 @@ const WeeklyTimeSlot: React.FC<{
   return (
     <div
       ref={setNodeRef}
-      className={`h-12 border-l border-gray-200 transition-colors ${
+      className={`h-12 border-l transition-all relative ${
         isOver
-          ? 'bg-blue-100 border-blue-300'
-          : 'hover:bg-gray-50'
+          ? 'bg-blue-100 border-blue-400 border-2 border-dashed'
+          : 'border-gray-200 hover:bg-gray-50'
       }`}
       onClick={() => onCreateEvent(date, time)}
-    />
+    >
+      {isOver && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="bg-blue-500 text-white px-2 py-0.5 rounded text-xs font-medium shadow-lg">
+            Drop
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 

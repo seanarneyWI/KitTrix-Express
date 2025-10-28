@@ -104,10 +104,12 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
   const handleDragStart = (event: any) => {
     const { active } = event;
     const dragData = active.data.current as DragData;
+    console.log('🎯 MonthlyCalendar drag start:', { activeId: active.id, dragData });
 
     if (dragData?.type === 'event') {
       const eventToMove = events.find(e => e.id === dragData.eventId);
       if (eventToMove) {
+        console.log('✅ Found event to move:', eventToMove.title);
         setActiveEvent(eventToMove);
       }
     }
@@ -115,18 +117,30 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
+    console.log('🎯 MonthlyCalendar drag end:', {
+      activeId: active.id,
+      overId: over?.id,
+      hasOver: !!over
+    });
     setActiveEvent(null);
 
-    if (!over) return;
+    if (!over) {
+      console.log('❌ No drop target');
+      return;
+    }
 
     const dragData = active.data.current as DragData;
     const dropData = over.data.current as { date?: string };
+    console.log('📦 Drag/Drop data:', { dragData, dropData });
 
     if (dragData?.type === 'event' && dropData?.date) {
       // Preserve the original start time when moving between days
       const originalEvent = events.find(e => e.id === dragData.eventId);
       const startTime = originalEvent?.startTime || '09:00';
+      console.log('✅ Moving event:', dragData.eventId, 'to', dropData.date, 'at', startTime);
       onMoveEvent(dragData.eventId, dropData.date, startTime);
+    } else {
+      console.log('❌ Invalid drag/drop data:', { dragType: dragData?.type, dropDate: dropData?.date });
     }
   };
 
@@ -385,7 +399,7 @@ const DroppableDay: React.FC<{ date: string }> = ({ date }) => {
   return (
     <div
       ref={setNodeRef}
-      className={`absolute inset-0 transition-all ${
+      className={`absolute inset-0 pointer-events-none transition-all ${
         isOver ? 'bg-blue-100 border-2 border-blue-300 border-dashed rounded' : ''
       }`}
     />

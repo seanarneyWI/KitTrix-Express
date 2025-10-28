@@ -181,6 +181,48 @@ app.delete('/api/kitting-jobs/:jobId', async (req, res) => {
   }
 });
 
+// Update kitting job schedule (for drag-and-drop)
+app.put('/api/kitting-jobs', async (req, res) => {
+  try {
+    const { id } = req.query;
+    const { scheduledDate, scheduledStartTime } = req.body;
+
+    console.log(`📅 Updating job ${id} schedule:`, { scheduledDate, scheduledStartTime });
+
+    // Validate inputs
+    if (!id) {
+      return res.status(400).json({ error: 'Job ID is required' });
+    }
+
+    // Build update object - only update provided fields
+    const updateData = {};
+    if (scheduledDate !== undefined) {
+      if (scheduledDate) {
+        // Parse date as local date, not UTC
+        // Add T12:00:00 to ensure it's interpreted as noon local time
+        // This prevents timezone issues where UTC midnight becomes previous day
+        updateData.scheduledDate = new Date(scheduledDate + 'T12:00:00');
+      } else {
+        updateData.scheduledDate = null;
+      }
+    }
+    if (scheduledStartTime !== undefined) {
+      updateData.scheduledStartTime = scheduledStartTime;
+    }
+
+    const updatedJob = await prisma.kittingJob.update({
+      where: { id },
+      data: updateData
+    });
+
+    console.log(`✅ Updated job ${id} schedule successfully`);
+    res.json(updatedJob);
+  } catch (error) {
+    console.error('Error updating job schedule:', error);
+    res.status(500).json({ error: 'Failed to update job schedule' });
+  }
+});
+
 // Job Progress API
 app.get('/api/job-progress', async (req, res) => {
   try {

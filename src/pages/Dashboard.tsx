@@ -345,14 +345,18 @@ const Dashboard: React.FC = () => {
   };
 
   const handleMoveEvent = (eventId: string, newDate: string, newTime: string) => {
+    console.log('🎯 handleMoveEvent called:', { eventId, newDate, newTime });
+
     // Handle kitting job moves
     if (eventId.startsWith('kj-')) {
       const jobId = eventId.replace('kj-', '').split('-day-')[0];
+      console.log('  Extracted job ID:', jobId);
       updateKittingJobSchedule(jobId, newDate, newTime);
       return;
     }
 
     // Handle regular event moves
+    console.log('  Moving regular event');
     setEvents(events.map(event => {
       if (event.id === eventId) {
         // Calculate the duration
@@ -376,24 +380,54 @@ const Dashboard: React.FC = () => {
   };
 
   const updateKittingJobSchedule = async (jobId: string, newDate: string, newTime: string) => {
+    // Optimistic update: update UI immediately
+    const previousJobs = [...kittingJobs];
+    const updatedJobs = kittingJobs.map(job => {
+      if (job.id === jobId) {
+        return {
+          ...job,
+          scheduledDate: new Date(newDate + 'T12:00:00'),
+          scheduledStartTime: newTime
+        };
+      }
+      return job;
+    });
+    setKittingJobs(updatedJobs);
+
     try {
-      const response = await fetch(apiUrl(`/api/kitting-jobs?id=${jobId}`), {
+      const url = apiUrl(`/api/kitting-jobs?id=${jobId}`);
+      const payload = {
+        scheduledDate: newDate,
+        scheduledStartTime: newTime
+      };
+
+      console.log('📡 Making API call to update job schedule:', { url, payload });
+
+      const response = await fetch(url, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          scheduledDate: newDate,
-          scheduledStartTime: newTime
-        })
+        body: JSON.stringify(payload)
       });
 
+      console.log('📡 API response status:', response.status, response.statusText);
+
       if (response.ok) {
-        // Refresh kitting jobs to reflect the change
+        const data = await response.json();
+        console.log('✅ Job updated successfully:', data);
+        // Refresh from server to get accurate recalculated data
         fetchKittingJobs();
+      } else {
+        const errorText = await response.text();
+        console.error('❌ Failed to update job schedule:', response.status, errorText);
+        // Revert to previous state on error
+        setKittingJobs(previousJobs);
       }
     } catch (error) {
-      console.error('Failed to update kitting job schedule:', error);
+      console.error('❌ Error updating kitting job schedule:', error);
+      // Revert to previous state on error
+      setKittingJobs(previousJobs);
     }
   };
 
