@@ -5,6 +5,8 @@ import MonthlyCalendar from '../components/MonthlyCalendar';
 import DailyCalendar from '../components/DailyCalendar';
 import EventModal from '../components/EventModal';
 import FloatingActionButton from '../components/FloatingActionButton';
+import JobFilterPanel from '../components/JobFilterPanel';
+import { useJobFilters } from '../hooks/useJobFilters';
 import { Event } from '../types/event';
 import { KittingJob } from '../types/kitting';
 import { formatDuration } from '../utils/kittingCalculations';
@@ -12,6 +14,8 @@ import { apiUrl } from '../config/api';
 import {
   type Shift,
   scheduleJobForward,
+  scheduleJobForwardWithConfig,
+  getAllShifts,
   getActiveShifts
 } from '../utils/shiftScheduling';
 
@@ -25,6 +29,11 @@ const Dashboard: React.FC = () => {
   const [currentDate, setCurrentDate] = useState<string>('');
   const [mounted, setMounted] = useState(false);
   const [activeShifts, setActiveShifts] = useState<Shift[]>([]);
+  const [allShifts, setAllShifts] = useState<Shift[]>([]);
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+
+  // Initialize job filter hook
+  const jobFilters = useJobFilters(kittingJobs);
 
   const [modalState, setModalState] = useState<{
     isOpen: boolean;
@@ -67,11 +76,15 @@ const Dashboard: React.FC = () => {
 
   const loadActiveShifts = async () => {
     try {
-      const shifts = await getActiveShifts();
-      setActiveShifts(shifts);
-      console.log('Loaded active shifts:', shifts.length);
+      const [activeShiftsData, allShiftsData] = await Promise.all([
+        getActiveShifts(),
+        getAllShifts()
+      ]);
+      setActiveShifts(activeShiftsData);
+      setAllShifts(allShiftsData);
+      console.log('Loaded active shifts:', activeShiftsData.length, 'all shifts:', allShiftsData.length);
     } catch (error) {
-      console.error('Failed to load active shifts:', error);
+      console.error('Failed to load shifts:', error);
       // Continue with empty shifts array (will fallback to 24/7 scheduling)
     }
   };
@@ -180,8 +193,15 @@ const Dashboard: React.FC = () => {
       startDate.setHours(startHours, startMinutes, 0, 0);
 
       // Use shift-based forward scheduling if shifts are available
-      if (activeShifts.length > 0) {
-        const endDate = scheduleJobForward(startDate, job.expectedJobDuration, activeShifts);
+      if (allShifts.length > 0) {
+        // Use per-job configuration if available, otherwise fall back to global active shifts
+        const endDate = scheduleJobForwardWithConfig(
+          startDate,
+          job.expectedJobDuration,
+          allShifts,
+          job.allowedShiftIds || [],
+          job.includeWeekends || false
+        );
 
         // For now, create a single event spanning from start to end
         // TODO: In Sprint 3, split this into per-day events for multi-day jobs
@@ -290,10 +310,10 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  // Combine events and kitting jobs for display
+  // Combine events and kitting jobs for display (use visible jobs from filter)
   const allCalendarItems = [
     ...events,
-    ...kittingJobs.flatMap(kittingJobToEvents)
+    ...jobFilters.visibleJobs.flatMap(kittingJobToEvents)
   ];
 
   // Log all calendar items for debugging
@@ -559,15 +579,25 @@ const Dashboard: React.FC = () => {
     window.open(`/execute/${jobId}`, '_blank');
   };
 
+  const handleJumpToJob = (job: KittingJob) => {
+    // Navigate to the job's scheduled date
+    if (job.scheduledDate) {
+      const dateStr = new Date(job.scheduledDate).toISOString().split('T')[0];
+      setSelectedDate(dateStr);
+      setCalendarView('daily'); // Switch to daily view for best visibility
+      setIsFilterPanelOpen(false); // Close filter panel
+    }
+  };
+
   if (!mounted) {
     return <div className="min-h-screen bg-gray-100 flex items-center justify-center">Loading...</div>;
   };
 
   return (
-    <div className={`min-h-screen bg-gray-100 ${calendarView === 'daily' ? 'p-2' : 'p-4'}`}>
-      <div className={calendarView === 'daily' ? 'w-full' : 'container mx-auto'}>
+    <div className="h-screen flex flex-col bg-gray-100 overflow-hidden">
+      <div className="flex flex-col h-full">
         {/* Filter Controls */}
-        <div className="bg-white rounded-lg shadow-md p-4 mb-6">
+        <div className="bg-white rounded-lg shadow-md p-4 m-2 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <h2 className="text-lg font-semibold text-gray-800">Calendar View</h2>
@@ -638,50 +668,73 @@ const Dashboard: React.FC = () => {
               >
                 Kitting Jobs ({kittingJobs.length})
               </button>
+
+              {/* Job Filter Panel Toggle */}
+              <button
+                onClick={() => setIsFilterPanelOpen(true)}
+                className="relative px-4 py-2 rounded-lg text-sm font-medium bg-purple-500 text-white hover:bg-purple-600 transition-all shadow-md flex items-center gap-2"
+                title="Filter & Search Jobs (Cmd+F)"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                </svg>
+                Filter Jobs
+                {jobFilters.hiddenJobCount > 0 && (
+                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                    {jobFilters.hiddenJobCount}
+                  </span>
+                )}
+              </button>
             </div>
           </div>
         </div>
 
-        {calendarView === 'daily' ? (
-          <DailyCalendar
-            events={filteredItems}
-            onCreateEvent={handleCreateEvent}
-            onEditEvent={handleEditEvent}
-            onMoveEvent={handleMoveEvent}
-            onResizeEvent={handleResizeEvent}
-            initialDate={selectedDate}
-            onAssignJob={handleAssignJob}
-            onUnassignJob={handleUnassignJob}
-            onChangeStatus={handleChangeStatus}
-            onStartJob={handleStartJob}
-          />
-        ) : calendarView === 'weekly' ? (
-          <WeeklyCalendar
-            events={filteredItems}
-            onCreateEvent={handleCreateEvent}
-            onEditEvent={handleEditEvent}
-            onMoveEvent={handleMoveEvent}
-            onResizeEvent={handleResizeEvent}
-            onNavigateToDay={handleNavigateToDay}
-            onAssignJob={handleAssignJob}
-            onUnassignJob={handleUnassignJob}
-            onChangeStatus={handleChangeStatus}
-            onStartJob={handleStartJob}
-          />
-        ) : (
-          <MonthlyCalendar
-            events={filteredItems}
-            onCreateEvent={handleCreateEvent}
-            onEditEvent={handleEditEvent}
-            onMoveEvent={handleMoveEvent}
-            onResizeEvent={handleResizeEvent}
-            onNavigateToDay={handleNavigateToDay}
-            onAssignJob={handleAssignJob}
-            onUnassignJob={handleUnassignJob}
-            onChangeStatus={handleChangeStatus}
-            onStartJob={handleStartJob}
-          />
-        )}
+        {/* Calendar Container - Takes remaining vertical space */}
+        <div className="flex-1 overflow-hidden m-2">
+          {calendarView === 'daily' ? (
+            <DailyCalendar
+              events={filteredItems}
+              onCreateEvent={handleCreateEvent}
+              onEditEvent={handleEditEvent}
+              onMoveEvent={handleMoveEvent}
+              onResizeEvent={handleResizeEvent}
+              initialDate={selectedDate}
+              onAssignJob={handleAssignJob}
+              onUnassignJob={handleUnassignJob}
+              onChangeStatus={handleChangeStatus}
+              onStartJob={handleStartJob}
+              densityMode={jobFilters.densityMode}
+            />
+          ) : calendarView === 'weekly' ? (
+            <WeeklyCalendar
+              events={filteredItems}
+              onCreateEvent={handleCreateEvent}
+              onEditEvent={handleEditEvent}
+              onMoveEvent={handleMoveEvent}
+              onResizeEvent={handleResizeEvent}
+              onNavigateToDay={handleNavigateToDay}
+              onAssignJob={handleAssignJob}
+              onUnassignJob={handleUnassignJob}
+              onChangeStatus={handleChangeStatus}
+              onStartJob={handleStartJob}
+              densityMode={jobFilters.densityMode}
+            />
+          ) : (
+            <MonthlyCalendar
+              events={filteredItems}
+              onCreateEvent={handleCreateEvent}
+              onEditEvent={handleEditEvent}
+              onMoveEvent={handleMoveEvent}
+              onResizeEvent={handleResizeEvent}
+              onNavigateToDay={handleNavigateToDay}
+              onAssignJob={handleAssignJob}
+              onUnassignJob={handleUnassignJob}
+              onChangeStatus={handleChangeStatus}
+              onStartJob={handleStartJob}
+              densityMode={jobFilters.densityMode}
+            />
+          )}
+        </div>
 
         <EventModal
           isOpen={modalState.isOpen}
@@ -691,6 +744,27 @@ const Dashboard: React.FC = () => {
           event={modalState.event}
           initialDate={modalState.initialDate}
           initialTime={modalState.initialTime}
+        />
+
+        {/* Job Filter Panel */}
+        <JobFilterPanel
+          isOpen={isFilterPanelOpen}
+          onClose={() => setIsFilterPanelOpen(false)}
+          filteredJobs={jobFilters.filteredJobs}
+          visibleJobs={jobFilters.visibleJobs}
+          searchQuery={jobFilters.searchQuery}
+          onSearchChange={jobFilters.setSearchQuery}
+          statusFilters={jobFilters.statusFilters}
+          onToggleStatusFilter={jobFilters.toggleStatusFilter}
+          densityMode={jobFilters.densityMode}
+          onDensityChange={jobFilters.setDensityMode}
+          onToggleJobVisibility={jobFilters.toggleJobVisibility}
+          onSelectAll={jobFilters.selectAll}
+          onDeselectAll={jobFilters.deselectAll}
+          onResetFilters={jobFilters.resetFilters}
+          onJumpToJob={handleJumpToJob}
+          isJobVisible={jobFilters.isJobVisible}
+          hiddenJobCount={jobFilters.hiddenJobCount}
         />
 
         <FloatingActionButton onClick={() => window.open('/edit-job/new', '_blank')} />

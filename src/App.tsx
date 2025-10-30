@@ -1,5 +1,5 @@
 import React from 'react'
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, useLocation } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import Navigation from './components/Navigation'
 import Dashboard from './pages/Dashboard'
@@ -10,6 +10,9 @@ import JobExecute from './pages/JobExecute'
 import EditJob from './pages/EditJob'
 
 function App() {
+  const location = useLocation()
+  const isDashboard = location.pathname === '/'
+
   return (
     <div className="min-h-screen bg-gray-100">
       <Toaster
@@ -37,7 +40,7 @@ function App() {
         }}
       />
       <Navigation />
-      <main className="container mx-auto px-4 py-6">
+      <main className={isDashboard ? 'w-full' : 'container mx-auto px-4 py-6'}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/admin" element={<Admin />} />

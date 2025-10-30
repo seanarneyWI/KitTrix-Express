@@ -16,6 +16,7 @@ interface DailyCalendarProps {
   onUnassignJob?: (assignmentId: string) => void;
   onChangeStatus?: (jobId: string, status: string) => void;
   onStartJob?: (jobId: string) => void;
+  densityMode?: 'compact' | 'normal' | 'comfortable';
 }
 
 const DailyCalendar: React.FC<DailyCalendarProps> = ({
@@ -29,6 +30,7 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
   onUnassignJob,
   onChangeStatus,
   onStartJob,
+  densityMode = 'normal',
 }) => {
   const [currentDate, setCurrentDate] = useState(
     initialDate ? new Date(initialDate) : new Date()
@@ -147,6 +149,23 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
 
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+  // Get time slot dimensions based on density mode
+  const getSlotHeight = () => {
+    switch (densityMode) {
+      case 'compact': return 40; // h-10
+      case 'comfortable': return 80; // h-20
+      default: return 64; // h-16 (normal)
+    }
+  };
+
+  const getSlotHeightClass = () => {
+    switch (densityMode) {
+      case 'compact': return 'h-10';
+      case 'comfortable': return 'h-20';
+      default: return 'h-16'; // normal
+    }
+  };
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyboard = (e: KeyboardEvent) => {
@@ -205,8 +224,9 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
         // Calculate which 30-minute slot this time corresponds to
         const slotIndex = Math.floor(totalMinutes / 30);
 
-        // Calculate scroll position: each time slot is 64px tall (h-16 in Tailwind)
-        const scrollPosition = slotIndex * 64;
+        // Calculate scroll position based on density mode
+        const slotHeight = getSlotHeight();
+        const scrollPosition = slotIndex * slotHeight;
 
         // Delay ensures DOM is fully rendered before scrolling
         // 100ms is sufficient for React rendering and positioning calculations
@@ -232,7 +252,7 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="w-full bg-white rounded-lg shadow-lg overflow-hidden">
+      <div className="w-full h-full bg-white rounded-lg shadow-lg overflow-hidden flex flex-col">
         <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200/50 text-gray-700 p-6">
           <div className="flex justify-between items-center">
             <div>
@@ -269,16 +289,16 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
           </div>
         </div>
 
-        <div className="flex h-screen overflow-hidden">
+        <div className="flex flex-1 overflow-hidden">
           <div className="flex overflow-y-auto w-full" ref={calendarScrollRef}>
             <div className="w-20 border-r border-gray-200 bg-gray-50 flex-shrink-0">
-              <div className="h-16 border-b border-gray-200 flex items-center justify-center">
+              <div className={`${getSlotHeightClass()} border-b border-gray-200 flex items-center justify-center`}>
                 <span className="text-lg font-medium text-gray-500">Time</span>
               </div>
               {timeSlots.map((time) => (
                 <div
                   key={time}
-                  className="h-16 border-b border-gray-100 flex items-start justify-center pt-1"
+                  className={`${getSlotHeightClass()} border-b border-gray-100 flex items-start justify-center pt-1`}
                 >
                   <span className="text-lg text-gray-500 font-medium">
                     {formatTime(time)}
@@ -288,7 +308,7 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
             </div>
 
             <div className="flex-1">
-              <div className="h-16 border-b border-gray-200 bg-gray-50 flex items-center justify-center">
+              <div className={`${getSlotHeightClass()} border-b border-gray-200 bg-gray-50 flex items-center justify-center`}>
                 <div className="text-center">
                   <div className={`text-2xl font-bold ${isToday ? 'text-blue-600' : 'text-gray-900'}`}>
                     {currentDate.getDate()}
@@ -306,13 +326,15 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
                     date={currentDateStr}
                     time={time}
                     onCreateEvent={handleTimeSlotClick}
+                    heightClass={getSlotHeightClass()}
                   />
                 ))}
 
                 <div className="absolute inset-0 pointer-events-none">
                   <div className="relative h-full w-full">
                     {(() => {
-                      const eventPositions = calculateEventPositions(dayEvents, timeSlots, 64);
+                      const slotHeight = getSlotHeight();
+                      const eventPositions = calculateEventPositions(dayEvents, timeSlots, slotHeight);
                       const overlapLayout = calculateOverlapLayout(dayEvents);
 
                       return eventPositions.map((position) => {
@@ -379,7 +401,8 @@ const DailyTimeSlot: React.FC<{
   date: string;
   time: string;
   onCreateEvent: (date: string, time: string) => void;
-}> = ({ date, time, onCreateEvent }) => {
+  heightClass: string;
+}> = ({ date, time, onCreateEvent, heightClass }) => {
   const { isOver, setNodeRef } = useDroppable({
     id: `slot-${date}-${time}`,
     data: { date, time },
@@ -388,7 +411,7 @@ const DailyTimeSlot: React.FC<{
   return (
     <div
       ref={setNodeRef}
-      className={`h-16 border-b transition-all relative ${
+      className={`${heightClass} border-b transition-all relative ${
         isOver
           ? 'bg-blue-100 border-blue-400 border-2 border-dashed'
           : 'border-gray-100 hover:bg-gray-50'

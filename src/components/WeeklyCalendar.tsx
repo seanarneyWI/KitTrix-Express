@@ -15,6 +15,7 @@ interface WeeklyCalendarProps {
   onUnassignJob?: (assignmentId: string) => void;
   onChangeStatus?: (jobId: string, status: string) => void;
   onStartJob?: (jobId: string) => void;
+  densityMode?: 'compact' | 'normal' | 'comfortable';
 }
 
 const WeeklyCalendar: React.FC<WeeklyCalendarProps> = ({
@@ -28,6 +29,7 @@ const WeeklyCalendar: React.FC<WeeklyCalendarProps> = ({
   onUnassignJob,
   onChangeStatus,
   onStartJob,
+  densityMode = 'normal',
 }) => {
   const [currentWeek, setCurrentWeek] = useState(new Date());
   const [activeEvent, setActiveEvent] = useState<Event | null>(null);
@@ -121,6 +123,31 @@ const WeeklyCalendar: React.FC<WeeklyCalendarProps> = ({
 
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+  // Get time slot dimensions based on density mode
+  const getSlotHeight = () => {
+    switch (densityMode) {
+      case 'compact': return 32; // h-8
+      case 'comfortable': return 64; // h-16
+      default: return 48; // h-12 (normal)
+    }
+  };
+
+  const getSlotHeightClass = () => {
+    switch (densityMode) {
+      case 'compact': return 'h-8';
+      case 'comfortable': return 'h-16';
+      default: return 'h-12'; // normal
+    }
+  };
+
+  const getContainerMaxHeight = () => {
+    switch (densityMode) {
+      case 'compact': return 'max-h-[32rem]'; // 512px
+      case 'comfortable': return 'max-h-[48rem]'; // 768px
+      default: return 'max-h-96'; // 384px (normal)
+    }
+  };
+
   const handleEventContextMenu = (e: React.MouseEvent, event: Event) => {
     console.log('=== WEEKLY CALENDAR CONTEXT MENU DEBUG ===');
     console.log('Event ID:', event.id);
@@ -175,7 +202,7 @@ const WeeklyCalendar: React.FC<WeeklyCalendarProps> = ({
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="w-full max-w-7xl mx-auto bg-white rounded-lg shadow-lg overflow-hidden">
+      <div className="w-full h-full bg-white rounded-lg shadow-lg overflow-hidden flex flex-col">
         {/* Header */}
         <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200/50 text-gray-700 p-6">
           <div className="flex justify-between items-center">
@@ -201,7 +228,7 @@ const WeeklyCalendar: React.FC<WeeklyCalendarProps> = ({
         </div>
 
         {/* Calendar Grid */}
-        <div className="flex flex-col">
+        <div className="flex flex-col flex-1 overflow-hidden">
           {/* Day headers */}
           <div className="grid grid-cols-8 border-b border-gray-200">
             <div className="p-4 bg-gray-50"></div>
@@ -221,9 +248,9 @@ const WeeklyCalendar: React.FC<WeeklyCalendarProps> = ({
           </div>
 
           {/* Time slots and events */}
-          <div className="max-h-96 overflow-y-auto relative">
+          <div className="flex-1 overflow-y-auto relative">
             {timeSlots.map((time) => (
-              <div key={time} className="grid grid-cols-8 border-b border-gray-100 h-12">
+              <div key={time} className={`grid grid-cols-8 border-b border-gray-100 ${getSlotHeightClass()}`}>
                 <div className="p-2 text-xs text-gray-500 bg-gray-50 border-r border-gray-200">
                   {formatTime(time)}
                 </div>
@@ -267,10 +294,12 @@ const WeeklyCalendar: React.FC<WeeklyCalendarProps> = ({
                       const endInMinutes = endHour * 60 + endMinute;
                       const durationInMinutes = endInMinutes - startInMinutes;
 
-                      // Each hour slot is 48px (h-12), so each minute is 0.8px
-                      const pixelsPerMinute = 48 / 60;
+                      // Calculate pixels per minute based on density mode
+                      const slotHeight = getSlotHeight();
+                      const pixelsPerMinute = slotHeight / 60;
                       const top = startInMinutes * pixelsPerMinute;
-                      const height = Math.max(durationInMinutes * pixelsPerMinute, 24); // Min height of 24px
+                      const minHeight = densityMode === 'compact' ? 16 : densityMode === 'comfortable' ? 32 : 24;
+                      const height = Math.max(durationInMinutes * pixelsPerMinute, minHeight);
 
                       return (
                         <DraggableWeeklyEvent
@@ -419,7 +448,7 @@ const WeeklyTimeSlot: React.FC<{
   return (
     <div
       ref={setNodeRef}
-      className={`h-12 border-l transition-all relative ${
+      className={`h-full border-l transition-all relative ${
         isOver
           ? 'bg-blue-100 border-blue-400 border-2 border-dashed'
           : 'border-gray-200 hover:bg-gray-50'

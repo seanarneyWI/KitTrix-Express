@@ -14,6 +14,7 @@ interface MonthlyCalendarProps {
   onUnassignJob?: (assignmentId: string) => void;
   onChangeStatus?: (jobId: string, status: string) => void;
   onStartJob?: (jobId: string) => void;
+  densityMode?: 'compact' | 'normal' | 'comfortable';
 }
 
 const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
@@ -27,6 +28,7 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
   onUnassignJob,
   onChangeStatus,
   onStartJob,
+  densityMode = 'normal',
 }) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [activeEvent, setActiveEvent] = useState<Event | null>(null);
@@ -146,6 +148,23 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
 
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+  // Get cell height and event limits based on density mode
+  const getCellHeightClass = () => {
+    switch (densityMode) {
+      case 'compact': return 'min-h-[80px]';
+      case 'comfortable': return 'min-h-[160px]';
+      default: return 'min-h-[120px]'; // normal
+    }
+  };
+
+  const getEventLimit = () => {
+    switch (densityMode) {
+      case 'compact': return 2;
+      case 'comfortable': return 999; // Show all events
+      default: return 3; // normal
+    }
+  };
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyboard = (e: KeyboardEvent) => {
@@ -177,7 +196,7 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="w-full max-w-7xl mx-auto bg-white rounded-lg shadow-lg overflow-hidden">
+      <div className="w-full h-full bg-white rounded-lg shadow-lg overflow-hidden flex flex-col">
         {/* Header */}
         <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200/50 text-gray-700 p-6">
           <div className="flex justify-between items-center">
@@ -203,7 +222,7 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
         </div>
 
         {/* Calendar Grid */}
-        <div className="bg-white">
+        <div className="bg-white flex-1 flex flex-col overflow-hidden">
           {/* Day headers */}
           <div className="grid grid-cols-7 border-b border-gray-200">
             {dayNames.map((dayName) => (
@@ -217,7 +236,7 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
           </div>
 
           {/* Calendar days */}
-          <div className="grid grid-cols-7">
+          <div className="grid grid-cols-7 flex-1 overflow-auto">
             {monthDays.map(({ date, isCurrentMonth }, index) => {
               const dateStr = formatDate(date);
               const dayEvents = getEventsForDate(dateStr);
@@ -226,7 +245,7 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
               return (
                 <div
                   key={index}
-                  className={`min-h-[120px] border-r border-b border-gray-200 last:border-r-0 p-2 relative cursor-pointer hover:bg-gray-50 ${
+                  className={`${getCellHeightClass()} border-r border-b border-gray-200 last:border-r-0 p-2 relative cursor-pointer hover:bg-gray-50 ${
                     !isCurrentMonth ? 'bg-gray-50 text-gray-400' : ''
                   } ${isToday ? 'bg-blue-50' : ''}`}
                   data-date={dateStr}
@@ -238,7 +257,7 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
 
                   {/* Events for this day */}
                   <div className="space-y-1">
-                    {dayEvents.slice(0, 3).map((event) => (
+                    {dayEvents.slice(0, getEventLimit()).map((event) => (
                       <DraggableEvent
                         key={event.id}
                         event={event}
@@ -251,9 +270,9 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
                       />
                     ))}
 
-                    {dayEvents.length > 3 && (
+                    {dayEvents.length > getEventLimit() && (
                       <div className="text-xs text-gray-500 font-medium">
-                        +{dayEvents.length - 3} more
+                        +{dayEvents.length - getEventLimit()} more
                       </div>
                     )}
                   </div>
