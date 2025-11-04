@@ -258,8 +258,100 @@ ALTER TABLE kit_executions ADD COLUMN station_number INTEGER;
 ALTER TABLE kit_executions ADD COLUMN station_name TEXT;
 ```
 
+### What-If Scenario Planning System (November 4, 2025)
+
+**Problem**: Production schedulers needed a safe way to explore scheduling alternatives without risking changes to production data. Moving jobs on the calendar in production mode was too risky for experimentation.
+
+**Implementation**:
+
+1. **Database Schema** (`prisma/migrations/20251030_add_scenario_tables.sql`):
+   - Added `scenarios` table to store named planning scenarios
+   - Added `scenario_changes` table to track ADD/MODIFY/DELETE operations
+   - Uses JSONB for flexible change data storage
+   - CASCADE delete ensures cleanup when scenarios are discarded
+   - **Migration Status**: ✅ SAFE - Additive only, no existing tables modified
+
+2. **Frontend Components**:
+   - **WhatIfControl Panel** (`src/components/WhatIfControl.tsx`) - Slide-out sidebar for scenario management
+   - **useWhatIfMode Hook** (`src/hooks/useWhatIfMode.ts`) - State management and API integration
+   - Mode toggle button in Dashboard shows "🔮 What-If" (always visible)
+   - Button background changes color to indicate current mode (purple = what-if, white = production)
+
+3. **Key Features**:
+   - Create named scenarios with descriptions
+   - Activate scenarios to enter what-if mode
+   - Drag-and-drop jobs to test schedule changes (tracked as MODIFY operations)
+   - Changes panel shows live count of modifications
+   - Commit scenarios to apply all changes to production atomically
+   - Discard scenarios without applying changes
+   - Multi-window sync via BroadcastChannel API
+
+4. **Critical Bug Fixes** (November 4, 2025):
+
+   **Fix #1: Drag-and-Drop Not Tracking Changes**
+   - **Problem**: `updateKittingJobSchedule()` always updated production database, ignoring what-if mode
+   - **Solution**: Added mode detection at Dashboard.tsx:420-454
+   - **Behavior**:
+     - What-if mode: Calls `whatIf.addChange('MODIFY', ...)` to track changes
+     - Production mode: Updates database directly (original behavior)
+   - **User feedback**: Toast shows 🔮 emoji in what-if mode
+
+   **Fix #2: Scenario Commit Date Format Error**
+   - **Problem**: Prisma rejected `scheduledDate: "2025-10-31"` (expected ISO-8601 DateTime)
+   - **Solution**: Added data sanitization at server/index.cjs:667-683
+   - **Transforms**:
+     - `"2025-10-31"` → `new Date("2025-10-31T12:00:00.000Z")`
+     - Removes display-only fields (`jobNumber`, `customerName`)
+   - **Result**: Scenarios now commit successfully with proper date handling
+
+   **Fix #3: What-If Button Label Confusion**
+   - **Problem**: Button showed current state ("Production" or "What-If"), not the action
+   - **Solution**: Button now always shows "🔮 What-If" (Dashboard.tsx:688)
+   - **Visual feedback**: Background color indicates active mode
+
+5. **Development Environment Requirements**:
+   - **SSH Tunnel Required**: `ssh -f -N -L 5433:172.17.0.1:5432 sean@137.184.182.28`
+   - **Keep-alive recommended**: Add `-o ServerAliveInterval=60 -o ServerAliveCountMax=3`
+   - **Symptom if tunnel dies**: Backend errors, jobs don't load, only 1 job visible
+   - **Fix**: Restart tunnel and restart `npm run dev`
+
+6. **Database Migration Deployment**:
+   ```bash
+   # Check if tables exist
+   psql postgresql://motioadmin:M0t10n4lys1s@localhost:5433/motioPGDB -c "\dt scenarios"
+
+   # Run migration if needed
+   psql postgresql://motioadmin:M0t10n4lys1s@localhost:5433/motioPGDB \
+     -f prisma/migrations/20251030_add_scenario_tables.sql
+
+   # Regenerate Prisma client
+   npx prisma generate
+   ```
+
+**Files Modified**:
+- `src/pages/Dashboard.tsx` - Added what-if mode detection in updateKittingJobSchedule()
+- `src/components/WhatIfControl.tsx` - Scenario management UI
+- `src/hooks/useWhatIfMode.ts` - What-if state management hook
+- `server/index.cjs` - Scenario API endpoints + commit data sanitization
+- `prisma/schema.prisma` - Scenario and ScenarioChange models
+- `prisma/migrations/20251030_add_scenario_tables.sql` - Database migration
+
+**Testing Checklist**:
+- [ ] Create scenario with name and description
+- [ ] Activate scenario (button turns purple)
+- [ ] Drag job to new date - see 🔮 toast and change count increment
+- [ ] Switch to production mode - see original schedule
+- [ ] Switch back to what-if mode - see modified schedule
+- [ ] Commit scenario - changes apply to production, scenario deleted
+- [ ] Discard scenario - changes lost, scenario deleted
+
+**Known Limitations**:
+- Only schedule changes (date/time) are tracked; job creation/deletion not yet implemented
+- Single active scenario per session (no scenario comparison view)
+- No scenario save/reload after page refresh (scenarios persist in database)
+
 ## Next Steps & Future Improvements
-1. Fix station number display on loading screen (show immediately, not after kit starts)
+1. Implement station release when browser crashes (not just clean exit)
 2. Add cache-busting headers to prevent stale JavaScript issues
 3. Set up automated deployment via GitHub Actions
 4. Implement health monitoring and alerts
@@ -267,4 +359,5 @@ ALTER TABLE kit_executions ADD COLUMN station_name TEXT;
 6. Configure container auto-restart on failure
 7. Optimize Docker image size further
 8. Set up disk space monitoring/alerts
-9. Implement station release when browser crashes (not just clean exit)
+9. Extend what-if mode to support job creation/deletion (not just MODIFY)
+10. Add scenario comparison view (side-by-side before/after)

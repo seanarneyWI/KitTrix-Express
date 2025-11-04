@@ -6,7 +6,9 @@ import DailyCalendar from '../components/DailyCalendar';
 import EventModal from '../components/EventModal';
 import FloatingActionButton from '../components/FloatingActionButton';
 import JobFilterPanel from '../components/JobFilterPanel';
+import WhatIfControl from '../components/WhatIfControl';
 import { useJobFilters } from '../hooks/useJobFilters';
+import { useWhatIfMode } from '../hooks/useWhatIfMode';
 import { Event } from '../types/event';
 import { KittingJob } from '../types/kitting';
 import { formatDuration } from '../utils/kittingCalculations';
@@ -31,9 +33,13 @@ const Dashboard: React.FC = () => {
   const [activeShifts, setActiveShifts] = useState<Shift[]>([]);
   const [allShifts, setAllShifts] = useState<Shift[]>([]);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const [isWhatIfPanelOpen, setIsWhatIfPanelOpen] = useState(false);
 
-  // Initialize job filter hook
-  const jobFilters = useJobFilters(kittingJobs);
+  // Initialize What-If mode hook (applies scenario changes on top of production jobs)
+  const whatIf = useWhatIfMode(kittingJobs);
+
+  // Initialize job filter hook (applies filtering to what-if or production jobs)
+  const jobFilters = useJobFilters(whatIf.jobs);
 
   const [modalState, setModalState] = useState<{
     isOpen: boolean;
@@ -405,6 +411,51 @@ const Dashboard: React.FC = () => {
     const job = kittingJobs.find(j => j.id === jobId);
     const jobNumber = job?.jobNumber || jobId;
 
+    // Format date for display
+    const displayDate = new Date(newDate + 'T12:00:00').toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric'
+    });
+
+    // **WHAT-IF MODE**: Track change in scenario instead of updating production
+    if (whatIf.isWhatIfMode && whatIf.activeScenario) {
+      console.log('🔮 What-If mode: Adding MODIFY change to scenario');
+
+      try {
+        // Store original data for rollback
+        const originalData = {
+          scheduledDate: job?.scheduledDate,
+          scheduledStartTime: job?.scheduledStartTime
+        };
+
+        // Store new data
+        const changeData = {
+          scheduledDate: newDate,
+          scheduledStartTime: newTime,
+          jobNumber: job?.jobNumber,
+          customerName: job?.customerName
+        };
+
+        // Add change to scenario
+        await whatIf.addChange('MODIFY', jobId, changeData, originalData);
+
+        // Show what-if toast
+        toast.success(`🔮 Scenario change: ${jobNumber} → ${displayDate} at ${newTime}`, {
+          icon: '🔮',
+          duration: 3000
+        });
+
+        console.log('✅ What-If change added successfully');
+      } catch (error) {
+        console.error('❌ Failed to add what-if change:', error);
+        toast.error(`Failed to add change to scenario`);
+      }
+      return;
+    }
+
+    // **PRODUCTION MODE**: Update database directly
+    console.log('📅 Production mode: Updating job in database');
+
     // Optimistic update: update UI immediately
     const previousJobs = [...kittingJobs];
     const updatedJobs = kittingJobs.map(job => {
@@ -418,12 +469,6 @@ const Dashboard: React.FC = () => {
       return job;
     });
     setKittingJobs(updatedJobs);
-
-    // Format date for display
-    const displayDate = new Date(newDate + 'T12:00:00').toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric'
-    });
 
     try {
       const url = apiUrl(`/api/kitting-jobs?id=${jobId}`);
@@ -669,10 +714,28 @@ const Dashboard: React.FC = () => {
                 Kitting Jobs ({kittingJobs.length})
               </button>
 
+              {/* What-If Control Button */}
+              <button
+                onClick={() => setIsWhatIfPanelOpen(true)}
+                className={`relative px-4 py-2 rounded-lg text-sm font-medium transition-all shadow-md flex items-center gap-2 ${
+                  whatIf.mode === 'whatif'
+                    ? 'bg-purple-600 text-white hover:bg-purple-700'
+                    : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                }`}
+                title="What-If Scenario Planning"
+              >
+                🔮 What-If
+                {whatIf.changeCount > 0 && (
+                  <span className="ml-1 px-2 py-1 bg-purple-700 text-white text-xs rounded-full font-bold">
+                    {whatIf.changeCount}
+                  </span>
+                )}
+              </button>
+
               {/* Job Filter Panel Toggle */}
               <button
                 onClick={() => setIsFilterPanelOpen(true)}
-                className="relative px-4 py-2 rounded-lg text-sm font-medium bg-purple-500 text-white hover:bg-purple-600 transition-all shadow-md flex items-center gap-2"
+                className="relative px-4 py-2 rounded-lg text-sm font-medium bg-blue-500 text-white hover:bg-blue-600 transition-all shadow-md flex items-center gap-2"
                 title="Filter & Search Jobs (Cmd+F)"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -765,6 +828,20 @@ const Dashboard: React.FC = () => {
           onJumpToJob={handleJumpToJob}
           isJobVisible={jobFilters.isJobVisible}
           hiddenJobCount={jobFilters.hiddenJobCount}
+        />
+
+        <WhatIfControl
+          isOpen={isWhatIfPanelOpen}
+          onClose={() => setIsWhatIfPanelOpen(false)}
+          mode={whatIf.mode}
+          onModeChange={whatIf.switchMode}
+          activeScenario={whatIf.activeScenario}
+          allScenarios={whatIf.allScenarios}
+          changeCount={whatIf.changeCount}
+          onCreateScenario={whatIf.createScenario}
+          onActivateScenario={whatIf.activateScenario}
+          onCommitScenario={whatIf.commitScenario}
+          onDiscardScenario={whatIf.discardScenario}
         />
 
         <FloatingActionButton onClick={() => window.open('/edit-job/new', '_blank')} />

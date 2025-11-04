@@ -112,6 +112,25 @@ app.post('/api/kitting-jobs', async (req, res) => {
   try {
     const jobData = req.body;
 
+    // Validate shift IDs if provided
+    if (jobData.allowedShiftIds && jobData.allowedShiftIds.length > 0) {
+      const shifts = await prisma.shift.findMany({
+        where: {
+          id: { in: jobData.allowedShiftIds }
+        },
+        select: { id: true }
+      });
+
+      if (shifts.length !== jobData.allowedShiftIds.length) {
+        const foundIds = shifts.map(s => s.id);
+        const invalidIds = jobData.allowedShiftIds.filter(id => !foundIds.includes(id));
+        return res.status(400).json({
+          error: 'Invalid shift IDs provided',
+          invalidIds
+        });
+      }
+    }
+
     const job = await prisma.kittingJob.create({
       data: {
         ...jobData,
@@ -137,6 +156,25 @@ app.patch('/api/kitting-jobs/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
     const updateData = req.body;
+
+    // Validate shift IDs if provided
+    if (updateData.allowedShiftIds && updateData.allowedShiftIds.length > 0) {
+      const shifts = await prisma.shift.findMany({
+        where: {
+          id: { in: updateData.allowedShiftIds }
+        },
+        select: { id: true }
+      });
+
+      if (shifts.length !== updateData.allowedShiftIds.length) {
+        const foundIds = shifts.map(s => s.id);
+        const invalidIds = updateData.allowedShiftIds.filter(id => !foundIds.includes(id));
+        return res.status(400).json({
+          error: 'Invalid shift IDs provided',
+          invalidIds
+        });
+      }
+    }
 
     const job = await prisma.kittingJob.update({
       where: { id: jobId },
@@ -185,13 +223,32 @@ app.delete('/api/kitting-jobs/:jobId', async (req, res) => {
 app.put('/api/kitting-jobs', async (req, res) => {
   try {
     const { id } = req.query;
-    const { scheduledDate, scheduledStartTime } = req.body;
+    const { scheduledDate, scheduledStartTime, allowedShiftIds, includeWeekends } = req.body;
 
-    console.log(`📅 Updating job ${id} schedule:`, { scheduledDate, scheduledStartTime });
+    console.log(`📅 Updating job ${id} schedule:`, { scheduledDate, scheduledStartTime, allowedShiftIds, includeWeekends });
 
     // Validate inputs
     if (!id) {
       return res.status(400).json({ error: 'Job ID is required' });
+    }
+
+    // Validate shift IDs if provided
+    if (allowedShiftIds !== undefined && allowedShiftIds.length > 0) {
+      const shifts = await prisma.shift.findMany({
+        where: {
+          id: { in: allowedShiftIds }
+        },
+        select: { id: true }
+      });
+
+      if (shifts.length !== allowedShiftIds.length) {
+        const foundIds = shifts.map(s => s.id);
+        const invalidIds = allowedShiftIds.filter(id => !foundIds.includes(id));
+        return res.status(400).json({
+          error: 'Invalid shift IDs provided',
+          invalidIds
+        });
+      }
     }
 
     // Build update object - only update provided fields
@@ -208,6 +265,12 @@ app.put('/api/kitting-jobs', async (req, res) => {
     }
     if (scheduledStartTime !== undefined) {
       updateData.scheduledStartTime = scheduledStartTime;
+    }
+    if (allowedShiftIds !== undefined) {
+      updateData.allowedShiftIds = allowedShiftIds;
+    }
+    if (includeWeekends !== undefined) {
+      updateData.includeWeekends = includeWeekends;
     }
 
     const updatedJob = await prisma.kittingJob.update({
@@ -433,6 +496,261 @@ app.put('/api/shifts/:id', async (req, res) => {
   } catch (error) {
     console.error('Error updating shift details:', error);
     res.status(500).json({ error: 'Failed to update shift details' });
+  }
+});
+
+// ===== SCENARIO MANAGEMENT API ENDPOINTS =====
+
+// Get all scenarios
+app.get('/api/scenarios', async (req, res) => {
+  try {
+    const scenarios = await prisma.scenario.findMany({
+      include: {
+        changes: true
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
+    console.log(`🔮 Fetched ${scenarios.length} scenarios`);
+    res.json(scenarios);
+  } catch (error) {
+    console.error('Error fetching scenarios:', error);
+    res.status(500).json({ error: 'Failed to fetch scenarios' });
+  }
+});
+
+// Get active scenario with all changes
+app.get('/api/scenarios/active', async (req, res) => {
+  try {
+    const activeScenario = await prisma.scenario.findFirst({
+      where: { isActive: true },
+      include: {
+        changes: true
+      }
+    });
+
+    if (activeScenario) {
+      console.log(`🔮 Fetched active scenario: ${activeScenario.name} (${activeScenario.changes.length} changes)`);
+    } else {
+      console.log('🔮 No active scenario found');
+    }
+
+    res.json(activeScenario);
+  } catch (error) {
+    console.error('Error fetching active scenario:', error);
+    res.status(500).json({ error: 'Failed to fetch active scenario' });
+  }
+});
+
+// Create new scenario
+app.post('/api/scenarios', async (req, res) => {
+  try {
+    const { name, description } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Scenario name is required' });
+    }
+
+    const scenario = await prisma.scenario.create({
+      data: {
+        name: name.trim(),
+        description: description ? description.trim() : null,
+        isActive: false
+      }
+    });
+
+    console.log(`🔮 Created new scenario: ${scenario.name}`);
+    res.json(scenario);
+  } catch (error) {
+    console.error('Error creating scenario:', error);
+    res.status(500).json({ error: 'Failed to create scenario' });
+  }
+});
+
+// Activate scenario (deactivates others)
+app.patch('/api/scenarios/:id/activate', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Deactivate all scenarios first
+    await prisma.scenario.updateMany({
+      where: { isActive: true },
+      data: { isActive: false }
+    });
+
+    // Activate the selected scenario
+    const scenario = await prisma.scenario.update({
+      where: { id },
+      data: { isActive: true },
+      include: { changes: true }
+    });
+
+    console.log(`🔮 Activated scenario: ${scenario.name} (${scenario.changes.length} changes)`);
+    res.json(scenario);
+  } catch (error) {
+    console.error('Error activating scenario:', error);
+    res.status(500).json({ error: 'Failed to activate scenario' });
+  }
+});
+
+// Add change to scenario
+app.post('/api/scenarios/:id/changes', async (req, res) => {
+  try {
+    const { id: scenarioId } = req.params;
+    const { jobId, operation, changeData, originalData } = req.body;
+
+    // Validate operation
+    if (!['ADD', 'MODIFY', 'DELETE'].includes(operation)) {
+      return res.status(400).json({ error: 'Invalid operation. Must be ADD, MODIFY, or DELETE' });
+    }
+
+    // Validate changeData exists
+    if (!changeData) {
+      return res.status(400).json({ error: 'changeData is required' });
+    }
+
+    const change = await prisma.scenarioChange.create({
+      data: {
+        scenarioId,
+        jobId: jobId || null,
+        operation,
+        changeData,
+        originalData: originalData || null
+      }
+    });
+
+    console.log(`🔮 Added ${operation} change to scenario ${scenarioId}${jobId ? ` for job ${jobId}` : ''}`);
+    res.json(change);
+  } catch (error) {
+    console.error('Error adding change to scenario:', error);
+    res.status(500).json({ error: 'Failed to add change' });
+  }
+});
+
+// Commit scenario (promote all changes to production)
+app.post('/api/scenarios/:id/commit', async (req, res) => {
+  try {
+    const { id: scenarioId } = req.params;
+
+    // Fetch scenario with all changes
+    const scenario = await prisma.scenario.findUnique({
+      where: { id: scenarioId },
+      include: { changes: true }
+    });
+
+    if (!scenario) {
+      return res.status(404).json({ error: 'Scenario not found' });
+    }
+
+    console.log(`🔮 Committing scenario: ${scenario.name} (${scenario.changes.length} changes)`);
+
+    // Process each change in a transaction
+    const results = await prisma.$transaction(async (tx) => {
+      const applied = { added: 0, modified: 0, deleted: 0 };
+
+      for (const change of scenario.changes) {
+        try {
+          switch (change.operation) {
+            case 'ADD':
+              await tx.kittingJob.create({
+                data: change.changeData
+              });
+              applied.added++;
+              console.log(`  ✅ Added job: ${change.changeData.jobNumber || 'New Job'}`);
+              break;
+
+            case 'MODIFY':
+              if (!change.jobId) {
+                console.log(`  ⚠️ Skipping MODIFY with no jobId`);
+                continue;
+              }
+
+              // Sanitize changeData for Prisma
+              const updateData = { ...change.changeData };
+
+              // Convert scheduledDate string to proper ISO DateTime
+              if (updateData.scheduledDate && typeof updateData.scheduledDate === 'string') {
+                // If it's just a date string like "2025-10-31", convert to ISO DateTime
+                if (updateData.scheduledDate.length === 10) {
+                  updateData.scheduledDate = new Date(updateData.scheduledDate + 'T12:00:00.000Z');
+                } else {
+                  // If it's already a full ISO string, convert to Date object
+                  updateData.scheduledDate = new Date(updateData.scheduledDate);
+                }
+              }
+
+              // Remove fields that aren't part of the kittingJob schema
+              delete updateData.jobNumber;
+              delete updateData.customerName;
+
+              await tx.kittingJob.update({
+                where: { id: change.jobId },
+                data: updateData
+              });
+              applied.modified++;
+              console.log(`  ✅ Modified job: ${change.jobId}`);
+              break;
+
+            case 'DELETE':
+              if (!change.jobId) {
+                console.log(`  ⚠️ Skipping DELETE with no jobId`);
+                continue;
+              }
+              await tx.kittingJob.delete({
+                where: { id: change.jobId }
+              });
+              applied.deleted++;
+              console.log(`  ✅ Deleted job: ${change.jobId}`);
+              break;
+          }
+        } catch (changeError) {
+          console.error(`  ❌ Error applying ${change.operation} change:`, changeError.message);
+          throw changeError; // Rollback transaction on error
+        }
+      }
+
+      // Delete the scenario after successful commit
+      await tx.scenario.delete({
+        where: { id: scenarioId }
+      });
+
+      return applied;
+    });
+
+    console.log(`🔮 Scenario committed successfully:`, results);
+    res.json({
+      success: true,
+      message: 'Scenario committed successfully',
+      applied: results
+    });
+  } catch (error) {
+    console.error('❌ Error committing scenario:', error);
+    res.status(500).json({ error: 'Failed to commit scenario: ' + error.message });
+  }
+});
+
+// Discard scenario (delete without applying)
+app.delete('/api/scenarios/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const scenario = await prisma.scenario.findUnique({
+      where: { id },
+      select: { name: true }
+    });
+
+    if (!scenario) {
+      return res.status(404).json({ error: 'Scenario not found' });
+    }
+
+    await prisma.scenario.delete({
+      where: { id }
+    });
+
+    console.log(`🔮 Discarded scenario: ${scenario.name}`);
+    res.json({ success: true, message: 'Scenario discarded successfully' });
+  } catch (error) {
+    console.error('Error deleting scenario:', error);
+    res.status(500).json({ error: 'Failed to delete scenario' });
   }
 });
 
