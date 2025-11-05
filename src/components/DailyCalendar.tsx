@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { DndContext, DragEndEvent, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable } from '@dnd-kit/core';
+import toast from 'react-hot-toast';
 import { Event, DragData } from '../types/event';
 import ResizableEvent from './ResizableEvent';
 import DurationBasedEvent from './DurationBasedEvent';
@@ -134,8 +135,18 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
     }
 
     const dragData = active.data.current as DragData;
-    const dropData = over.data.current as { date: string; time: string };
+    const dropData = over.data.current as { date: string; time: string; isInShift?: boolean };
     console.log('📦 Drag/Drop data:', { dragData, dropData });
+
+    // Validate shift hours if shifts are configured
+    if (activeShifts && activeShifts.length > 0 && dropData?.isInShift === false) {
+      console.log('⚠️ Drop rejected: Outside active shift hours');
+      toast.error('Cannot schedule outside active shift hours', {
+        icon: '⏰',
+        duration: 3000,
+      });
+      return; // Prevent the drop
+    }
 
     if (dragData?.type === 'event' && dropData) {
       console.log('✅ Moving event:', dragData.eventId, 'to', dropData.date, 'at', dropData.time);
@@ -473,6 +484,7 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
                     time={time}
                     onCreateEvent={handleTimeSlotClick}
                     heightClass={getSlotHeightClass()}
+                    activeShifts={activeShifts}
                   />
                 ))}
 
@@ -551,10 +563,49 @@ const DailyTimeSlot: React.FC<{
   time: string;
   onCreateEvent: (date: string, time: string) => void;
   heightClass: string;
-}> = ({ date, time, onCreateEvent, heightClass }) => {
+  activeShifts?: Shift[];
+}> = ({ date, time, onCreateEvent, heightClass, activeShifts = [] }) => {
+  // Check if this time slot falls within any active shift
+  const isInShift = React.useMemo(() => {
+    if (!activeShifts || activeShifts.length === 0) return true; // No shifts = allow all times
+
+    // Import isTimeInShift logic inline to avoid circular dependency
+    const [hours, minutes] = time.split(':').map(Number);
+    const timeMinutes = hours * 60 + minutes;
+
+    return activeShifts.some((shift) => {
+      const [startHour, startMin] = shift.startTime.split(':').map(Number);
+      const [endHour, endMin] = shift.endTime.split(':').map(Number);
+
+      let startMinutes = startHour * 60 + startMin;
+      let endMinutes = endHour * 60 + endMin;
+
+      // Handle overnight shifts
+      if (endMinutes <= startMinutes) {
+        endMinutes += 24 * 60;
+      }
+
+      // Check if time falls within shift (excluding breaks)
+      let inShiftTime = timeMinutes >= startMinutes && timeMinutes < endMinutes;
+
+      // Exclude break times
+      if (inShiftTime && shift.breakStart && shift.breakDuration) {
+        const [breakHour, breakMin] = shift.breakStart.split(':').map(Number);
+        const breakStartMinutes = breakHour * 60 + breakMin;
+        const breakEndMinutes = breakStartMinutes + shift.breakDuration;
+
+        if (timeMinutes >= breakStartMinutes && timeMinutes < breakEndMinutes) {
+          inShiftTime = false; // This time is during a break
+        }
+      }
+
+      return inShiftTime;
+    });
+  }, [time, activeShifts]);
+
   const { isOver, setNodeRef } = useDroppable({
     id: `slot-${date}-${time}`,
-    data: { date, time },
+    data: { date, time, isInShift },
   });
 
   return (
@@ -562,15 +613,17 @@ const DailyTimeSlot: React.FC<{
       ref={setNodeRef}
       className={`${heightClass} border-b transition-all relative ${
         isOver
-          ? 'bg-blue-100 border-blue-400 border-2 border-dashed'
+          ? isInShift
+            ? 'bg-green-100 border-green-400 border-2 border-dashed'
+            : 'bg-red-100 border-red-400 border-2 border-dashed'
           : 'border-gray-100 hover:bg-gray-50'
       }`}
       onClick={() => onCreateEvent(date, time)}
     >
       {isOver && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="bg-blue-500 text-white px-3 py-1 rounded-full text-sm font-medium shadow-lg">
-            Drop here
+          <div className={`${isInShift ? 'bg-green-500' : 'bg-red-500'} text-white px-3 py-1 rounded-full text-sm font-medium shadow-lg`}>
+            {isInShift ? '✓ Drop here' : '✗ Outside shift hours'}
           </div>
         </div>
       )}
