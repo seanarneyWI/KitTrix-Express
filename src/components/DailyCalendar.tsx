@@ -149,8 +149,43 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
     }
 
     if (dragData?.type === 'event' && dropData) {
-      console.log('✅ Moving event:', dragData.eventId, 'to', dropData.date, 'at', dropData.time);
-      onMoveEvent(dragData.eventId, dropData.date, dropData.time);
+      let finalTime = dropData.time;
+
+      // Snap to shift start time if shifts are configured
+      if (activeShifts && activeShifts.length > 0) {
+        const [dropHour, dropMin] = dropData.time.split(':').map(Number);
+        const dropMinutes = dropHour * 60 + dropMin;
+
+        // Find the nearest shift start time
+        let nearestShiftStart = dropData.time;
+        let minDistance = Infinity;
+
+        for (const shift of activeShifts) {
+          const [shiftHour, shiftMin] = shift.startTime.split(':').map(Number);
+          const shiftMinutes = shiftHour * 60 + shiftMin;
+
+          const distance = Math.abs(dropMinutes - shiftMinutes);
+          if (distance < minDistance) {
+            minDistance = distance;
+            nearestShiftStart = shift.startTime;
+          }
+        }
+
+        // Only snap if within 2 hours of shift start (prevents snapping across large gaps)
+        if (minDistance <= 120) {
+          finalTime = nearestShiftStart;
+          if (finalTime !== dropData.time) {
+            console.log(`📍 Snapped from ${dropData.time} to shift start ${finalTime}`);
+            toast.success(`Job snapped to shift start: ${finalTime}`, {
+              icon: '📍',
+              duration: 2000,
+            });
+          }
+        }
+      }
+
+      console.log('✅ Moving event:', dragData.eventId, 'to', dropData.date, 'at', finalTime);
+      onMoveEvent(dragData.eventId, dropData.date, finalTime);
     } else if (dragData?.type === 'resize' && dropData) {
       if (dragData.resizeHandle) {
         console.log('✅ Resizing event:', dragData.eventId, dragData.resizeHandle, 'to', dropData.time);
