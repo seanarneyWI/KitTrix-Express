@@ -350,6 +350,161 @@ ALTER TABLE kit_executions ADD COLUMN station_name TEXT;
 - Single active scenario per session (no scenario comparison view)
 - No scenario save/reload after page refresh (scenarios persist in database)
 
+### Shift Calendar Improvements (November 5, 2025)
+
+**Implemented Features** (Commit: 12e08a38):
+
+1. **Shift Toggle Buttons** (Week 3 - Quick Wins):
+   - Added quick toggle buttons in Dashboard header next to job filters
+   - Click shift name to activate/deactivate (toggles `isActive` status)
+   - Visual feedback with colored buttons (active = custom shift color, inactive = gray)
+   - Hover over shift button reveals gear icon (⚙️) to edit shift settings
+   - Toast notifications confirm activation/deactivation
+   - Calendar automatically refreshes when shifts are toggled
+
+2. **Shift Configuration Modal** (Week 3 - Quick Wins):
+   - New `ShiftConfigModal.tsx` component for comprehensive shift editing
+   - **Form Fields**:
+     - Shift name (required)
+     - Start time (HH:MM format, validated)
+     - End time (HH:MM format, validated)
+     - Break start time (optional)
+     - Break duration in minutes (optional, 0-180 range)
+     - Visual color picker with 8 preset colors + custom color input
+   - **Features**:
+     - Form validation with error messages
+     - Keyboard shortcuts (Esc to close, Enter to save)
+     - Delete shift button (with confirmation dialog)
+     - Loading states for save/delete operations
+   - **API Integration**:
+     - PUT `/api/shifts/:id` for updates
+     - DELETE `/api/shifts/:id` for deletion (newly added endpoint)
+     - Automatic shift list refresh after operations
+
+3. **What-If Visual Indicators** (Week 4 - Quick Wins):
+   - Added `__whatif` property to Event interface (`'added' | 'modified' | 'deleted'`)
+   - Jobs modified in what-if mode now display visual indicators on calendar:
+     - **Added jobs**: Green left border (`border-green-500`) + green ring + ➕ badge
+     - **Modified jobs**: Yellow left border (`border-yellow-500`) + yellow ring + ✏️ badge
+     - **Deleted jobs**: Red left border (`border-red-500`) + red ring + 🗑️ badge + dimmed opacity
+   - **Emoji badges**: Positioned in top-right corner with semi-transparent black background
+   - **Marker preservation**: `__whatif` property flows through entire data pipeline:
+     - Set by `useWhatIfMode` hook (lines 150, 159, 169)
+     - Passed through `kittingJobToEvents()` conversion (Dashboard.tsx:346, 369, 388)
+     - Rendered by `DurationBasedEvent` component (lines 84-98, 120-124)
+
+**Technical Implementation**:
+
+**Dashboard.tsx Changes**:
+```typescript
+// Shift Toggle Handler (lines 108-143)
+const handleShiftToggle = async (shiftId: string) => {
+  const shift = allShifts.find(s => s.id === shiftId);
+  const newActiveStatus = !shift.isActive;
+
+  await fetch(apiUrl(`/api/shifts/${shiftId}`), {
+    method: 'PATCH',
+    body: JSON.stringify({ isActive: newActiveStatus })
+  });
+
+  await loadActiveShifts(); // Refresh
+  toast.success(newActiveStatus ? `✓ Activated ${shift.name}` : `Deactivated ${shift.name}`);
+};
+
+// Shift Edit Handler (lines 145-148)
+const handleEditShift = (shift: Shift) => {
+  setEditingShift(shift);
+  setIsShiftModalOpen(true);
+};
+
+// Shift Save/Delete Handlers (lines 150-188)
+const handleSaveShift = async (shiftId: string, updates: Partial<Shift>) => {
+  await fetch(apiUrl(`/api/shifts/${shiftId}`), {
+    method: 'PUT',
+    body: JSON.stringify(updates)
+  });
+  await loadActiveShifts();
+  toast.success('✓ Shift saved successfully');
+};
+
+// Shift Toggle UI (lines 802-833)
+{allShifts.map((shift) => (
+  <div key={shift.id} className="relative group">
+    <button onClick={() => handleShiftToggle(shift.id)}>
+      {shift.name}
+    </button>
+    <button onClick={() => handleEditShift(shift)}>⚙</button>
+  </div>
+))}
+```
+
+**server/index.cjs Changes**:
+```javascript
+// DELETE endpoint added (lines 502-516)
+app.delete('/api/shifts/:id', async (req, res) => {
+  const shift = await prisma.shift.delete({ where: { id } });
+  console.log(`🗑️ Deleted shift: ${shift.name}`);
+  res.json({ success: true });
+});
+```
+
+**DurationBasedEvent.tsx Changes**:
+```typescript
+// Visual indicators (lines 84-98)
+const whatIfBorder = event.__whatif
+  ? event.__whatif === 'added'
+    ? 'border-l-4 border-green-500 ring-2 ring-green-400/50'
+    : event.__whatif === 'modified'
+    ? 'border-l-4 border-yellow-500 ring-2 ring-yellow-400/50'
+    : 'border-l-4 border-red-500 ring-2 ring-red-400/50 opacity-60'
+  : 'border-l-4 border-white/20';
+
+const whatIfEmoji = event.__whatif
+  ? event.__whatif === 'added' ? '➕'
+    : event.__whatif === 'modified' ? '✏️'
+    : '🗑️'
+  : null;
+
+// Emoji badge rendering (lines 120-124)
+{whatIfEmoji && (
+  <div className="absolute top-0.5 right-0.5 text-sm bg-black/30 rounded-full">
+    {whatIfEmoji}
+  </div>
+)}
+```
+
+**Files Modified**:
+- `src/pages/Dashboard.tsx` - Shift toggles, handlers, modal integration (145 lines added)
+- `src/components/ShiftConfigModal.tsx` - New modal component (420 lines)
+- `src/components/DurationBasedEvent.tsx` - Visual what-if indicators (40 lines added)
+- `src/types/event.ts` - Added `__whatif` property to Event interface
+- `server/index.cjs` - Added DELETE `/api/shifts/:id` endpoint
+
+**User Workflow**:
+
+*Managing Shifts*:
+1. View active shifts in Dashboard header (next to job filters)
+2. Click shift name to toggle active/inactive
+3. Hover over shift → click ⚙️ icon to open settings
+4. Edit shift details (times, breaks, color) in modal
+5. Click "Save Changes" or "Delete" button
+6. Calendar automatically refreshes with new configuration
+
+*What-If Mode Visual Feedback*:
+1. Activate a scenario from What-If panel
+2. Drag job to new date/time on calendar
+3. Job now shows colored border and emoji badge:
+   - Modified job = yellow border + ✏️ badge
+4. Switch to Production mode → see original schedule (no badges)
+5. Switch back to What-If mode → see modified schedule (badges visible)
+6. Commit scenario → badges disappear, changes applied to production
+
+**Known Limitations**:
+- Shift deletion does not check for dependent jobs (may break scheduling if jobs reference deleted shift)
+- No bulk shift operations (activate/deactivate all)
+- Shift edit modal has no "duplicate shift" feature
+- What-if deleted jobs still visible on calendar (just dimmed with 🗑️ badge)
+
 ## Next Steps & Future Improvements
 1. Implement station release when browser crashes (not just clean exit)
 2. Add cache-busting headers to prevent stale JavaScript issues
@@ -361,3 +516,6 @@ ALTER TABLE kit_executions ADD COLUMN station_name TEXT;
 8. Set up disk space monitoring/alerts
 9. Extend what-if mode to support job creation/deletion (not just MODIFY)
 10. Add scenario comparison view (side-by-side before/after)
+11. Add shift validation before deletion (check for dependent jobs)
+12. Add bulk shift operations (activate/deactivate all shifts)
+13. Add "duplicate shift" feature to shift config modal
