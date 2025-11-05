@@ -767,6 +767,7 @@ const Dashboard: React.FC = () => {
               onChangeStatus={handleChangeStatus}
               onStartJob={handleStartJob}
               densityMode={jobFilters.densityMode}
+              activeShifts={activeShifts}
             />
           ) : calendarView === 'weekly' ? (
             <WeeklyCalendar

@@ -4,6 +4,7 @@ import { Event, DragData } from '../types/event';
 import ResizableEvent from './ResizableEvent';
 import DurationBasedEvent from './DurationBasedEvent';
 import { calculateEventPositions, calculateOverlapLayout } from '../utils/calendarLayout';
+import { Shift } from '../utils/shiftScheduling';
 
 interface DailyCalendarProps {
   events: Event[];
@@ -17,6 +18,7 @@ interface DailyCalendarProps {
   onChangeStatus?: (jobId: string, status: string) => void;
   onStartJob?: (jobId: string) => void;
   densityMode?: 'compact' | 'normal' | 'comfortable';
+  activeShifts?: Shift[];
 }
 
 const DailyCalendar: React.FC<DailyCalendarProps> = ({
@@ -31,6 +33,7 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
   onChangeStatus,
   onStartJob,
   densityMode = 'normal',
+  activeShifts = [],
 }) => {
   const [currentDate, setCurrentDate] = useState(
     initialDate ? new Date(initialDate) : new Date()
@@ -166,6 +169,119 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
     }
   };
 
+  /**
+   * Render shift background bands with breaks
+   * Converts shift times to pixel positions for visual overlay
+   */
+  const renderShiftBackgrounds = () => {
+    if (!activeShifts || activeShifts.length === 0) return null;
+
+    const slotHeight = getSlotHeight();
+
+    return activeShifts.map((shift) => {
+      // Convert shift times to minutes for pixel calculation
+      const [startHour, startMin] = shift.startTime.split(':').map(Number);
+      const [endHour, endMin] = shift.endTime.split(':').map(Number);
+
+      const startMinutes = startHour * 60 + startMin;
+      let endMinutes = endHour * 60 + endMin;
+
+      // Handle overnight shifts (end time before start time means next day)
+      if (endMinutes <= startMinutes) {
+        endMinutes += 24 * 60; // Add 24 hours
+      }
+
+      const durationMinutes = endMinutes - startMinutes;
+
+      // Calculate pixel positions (each 30-min slot = slotHeight pixels)
+      const topPosition = (startMinutes / 30) * slotHeight;
+      const height = (durationMinutes / 30) * slotHeight;
+
+      // Use shift color or default to blue with opacity
+      const backgroundColor = shift.color
+        ? `${shift.color}15` // Add 15 for ~8% opacity (hex)
+        : 'rgba(59, 130, 246, 0.08)'; // blue-500 with 8% opacity
+
+      const borderColor = shift.color || '#3b82f6'; // blue-500
+
+      return (
+        <div key={shift.id}>
+          {/* Shift background band */}
+          <div
+            style={{
+              position: 'absolute',
+              top: `${topPosition}px`,
+              left: 0,
+              right: 0,
+              height: `${height}px`,
+              backgroundColor,
+              borderTop: `2px solid ${borderColor}`,
+              borderBottom: `2px solid ${borderColor}`,
+              pointerEvents: 'none',
+              zIndex: 0,
+            }}
+          >
+            {/* Shift label */}
+            <div
+              style={{
+                position: 'absolute',
+                top: '4px',
+                left: '8px',
+                fontSize: '11px',
+                fontWeight: '600',
+                color: borderColor,
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                opacity: 0.7,
+              }}
+            >
+              {shift.name}
+            </div>
+          </div>
+
+          {/* Break time gray zone */}
+          {shift.breakStart && shift.breakDuration && (() => {
+            const [breakHour, breakMin] = shift.breakStart.split(':').map(Number);
+            const breakStartMinutes = breakHour * 60 + breakMin;
+            const breakTopPosition = (breakStartMinutes / 30) * slotHeight;
+            const breakHeight = (shift.breakDuration / 30) * slotHeight;
+
+            return (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: `${breakTopPosition}px`,
+                  left: 0,
+                  right: 0,
+                  height: `${breakHeight}px`,
+                  backgroundColor: 'rgba(156, 163, 175, 0.2)', // gray-400 with 20% opacity
+                  borderTop: '1px dashed rgba(156, 163, 175, 0.5)',
+                  borderBottom: '1px dashed rgba(156, 163, 175, 0.5)',
+                  pointerEvents: 'none',
+                  zIndex: 1,
+                }}
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '2px',
+                    right: '8px',
+                    fontSize: '10px',
+                    fontWeight: '500',
+                    color: '#6b7280', // gray-500
+                    opacity: 0.8,
+                  }}
+                >
+                  BREAK
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      );
+    });
+  };
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyboard = (e: KeyboardEvent) => {
@@ -255,7 +371,7 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
       <div className="w-full h-full bg-white rounded-lg shadow-lg overflow-hidden flex flex-col">
         <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200/50 text-gray-700 p-6">
           <div className="flex justify-between items-center">
-            <div>
+            <div className="flex-1">
               <h1 className="text-2xl font-bold">Daily Calendar</h1>
               <p className="text-gray-500 mt-1">
                 {dayNames[currentDate.getDay()]}, {currentDate.toLocaleDateString('en-US', {
@@ -265,8 +381,38 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
                 })}
                 {isToday && <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">Today</span>}
               </p>
+
+              {/* Shift Legend */}
+              {activeShifts && activeShifts.length > 0 && (
+                <div className="mt-3 flex items-center gap-3">
+                  <span className="text-xs font-medium text-gray-600 uppercase tracking-wide">Active Shifts:</span>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    {activeShifts.map((shift) => {
+                      const borderColor = shift.color || '#3b82f6';
+                      return (
+                        <div
+                          key={shift.id}
+                          className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/60"
+                          style={{ borderLeft: `3px solid ${borderColor}` }}
+                        >
+                          <div
+                            className="w-2.5 h-2.5 rounded-full"
+                            style={{ backgroundColor: borderColor }}
+                          />
+                          <span className="text-xs font-medium" style={{ color: borderColor }}>
+                            {shift.name}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            ({shift.startTime} - {shift.endTime})
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 ml-4">
               <button
                 onClick={() => navigateDate('prev')}
                 className="p-2 rounded-lg border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-colors"
@@ -332,6 +478,9 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
 
                 <div className="absolute inset-0 pointer-events-none">
                   <div className="relative h-full w-full">
+                    {/* Render shift background bands (behind events) */}
+                    {renderShiftBackgrounds()}
+
                     {(() => {
                       const slotHeight = getSlotHeight();
                       const eventPositions = calculateEventPositions(dayEvents, timeSlots, slotHeight);
