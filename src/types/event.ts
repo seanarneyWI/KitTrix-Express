@@ -10,6 +10,7 @@ export interface Event {
   color?: string;
   type?: 'event' | 'kitting-job';
   kittingJob?: KittingJob;
+  __whatif?: 'added' | 'modified' | 'deleted'; // What-if scenario change marker
 }
 
 export interface DragData {

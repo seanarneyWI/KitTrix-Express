@@ -55,8 +55,12 @@ model KittingJob {
   expectedJobDuration Int // EJD in seconds
 
   // Scheduling
-  scheduledDate     DateTime?
+  scheduledDate      DateTime?
   scheduledStartTime String?
+
+  // Per-job scheduling configuration
+  allowedShiftIds    String[]  @default([]) @map("allowed_shift_ids")
+  includeWeekends    Boolean   @default(false) @map("include_weekends")
 
   // Execution interface preference
   executionInterface ExecutionInterface @default(STEPS) @map("execution_interface")
@@ -300,6 +304,38 @@ model Shift {
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   @@map("shifts")
+}
+
+model Scenario {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  createdBy   String?  @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  isActive    Boolean  @default(false) @map("is_active")
+
+  // Relations
+  changes     ScenarioChange[]
+
+  @@map("scenarios")
+}
+
+model ScenarioChange {
+  id           String   @id @default(cuid())
+  scenarioId   String   @map("scenario_id")
+  jobId        String?  @map("job_id")
+  operation    String   // 'ADD', 'MODIFY', 'DELETE'
+  changeData   Json     @map("change_data")
+  originalData Json?    @map("original_data")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Relations
+  scenario     Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+
+  @@index([scenarioId])
+  @@index([jobId])
+  @@map("scenario_changes")
 }
 
 model Company {

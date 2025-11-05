@@ -499,6 +499,22 @@ app.put('/api/shifts/:id', async (req, res) => {
   }
 });
 
+app.delete('/api/shifts/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const shift = await prisma.shift.delete({
+      where: { id }
+    });
+
+    console.log(`🗑️ Deleted shift: ${shift.name}`);
+    res.json({ success: true, message: `Shift ${shift.name} deleted` });
+  } catch (error) {
+    console.error('Error deleting shift:', error);
+    res.status(500).json({ error: 'Failed to delete shift' });
+  }
+});
+
 // ===== SCENARIO MANAGEMENT API ENDPOINTS =====
 
 // Get all scenarios

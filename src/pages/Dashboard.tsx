@@ -7,6 +7,7 @@ import EventModal from '../components/EventModal';
 import FloatingActionButton from '../components/FloatingActionButton';
 import JobFilterPanel from '../components/JobFilterPanel';
 import WhatIfControl from '../components/WhatIfControl';
+import ShiftConfigModal from '../components/ShiftConfigModal';
 import { useJobFilters } from '../hooks/useJobFilters';
 import { useWhatIfMode } from '../hooks/useWhatIfMode';
 import { Event } from '../types/event';
@@ -34,6 +35,8 @@ const Dashboard: React.FC = () => {
   const [allShifts, setAllShifts] = useState<Shift[]>([]);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [isWhatIfPanelOpen, setIsWhatIfPanelOpen] = useState(false);
+  const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
+  const [editingShift, setEditingShift] = useState<Shift | null>(null);
 
   // Initialize What-If mode hook (applies scenario changes on top of production jobs)
   const whatIf = useWhatIfMode(kittingJobs);
@@ -100,6 +103,88 @@ const Dashboard: React.FC = () => {
     console.log('Active shifts updated:', updatedActiveShifts.length);
     // Re-render calendar with new shift configuration
     // The calendar will automatically update because kittingJobToEvents depends on activeShifts
+  };
+
+  const handleShiftToggle = async (shiftId: string) => {
+    try {
+      // Find the shift to toggle
+      const shift = allShifts.find(s => s.id === shiftId);
+      if (!shift) {
+        console.error('Shift not found:', shiftId);
+        return;
+      }
+
+      // Toggle the isActive status
+      const newActiveStatus = !shift.isActive;
+
+      // Call API to update shift
+      const response = await fetch(apiUrl(`/api/shifts/${shiftId}`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive: newActiveStatus })
+      });
+
+      if (response.ok) {
+        // Reload shifts to get updated data
+        await loadActiveShifts();
+        toast.success(
+          newActiveStatus
+            ? `✓ Activated ${shift.name}`
+            : `Deactivated ${shift.name}`,
+          { duration: 2000 }
+        );
+      } else {
+        throw new Error('Failed to update shift');
+      }
+    } catch (error) {
+      console.error('Failed to toggle shift:', error);
+      toast.error('Failed to toggle shift. Please try again.', { duration: 3000 });
+    }
+  };
+
+  const handleEditShift = (shift: Shift) => {
+    setEditingShift(shift);
+    setIsShiftModalOpen(true);
+  };
+
+  const handleSaveShift = async (shiftId: string, updates: Partial<Shift>) => {
+    try {
+      const response = await fetch(apiUrl(`/api/shifts/${shiftId}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+
+      if (response.ok) {
+        // Reload shifts to get updated data
+        await loadActiveShifts();
+        toast.success('✓ Shift saved successfully', { duration: 2000 });
+      } else {
+        throw new Error('Failed to save shift');
+      }
+    } catch (error) {
+      console.error('Failed to save shift:', error);
+      throw error; // Let modal handle error display
+    }
+  };
+
+  const handleDeleteShift = async (shiftId: string) => {
+    try {
+      const response = await fetch(apiUrl(`/api/shifts/${shiftId}`), {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        // Reload shifts to get updated data
+        await loadActiveShifts();
+        toast.success('✓ Shift deleted successfully', { duration: 2000 });
+      } else {
+        throw new Error('Failed to delete shift');
+      }
+    } catch (error) {
+      console.error('Failed to delete shift:', error);
+      throw error; // Let modal handle error display
+    }
   };
 
   const fetchKittingJobs = async () => {
@@ -257,7 +342,8 @@ const Dashboard: React.FC = () => {
               description: `${job.customerName} | ${job.orderedQuantity} kits | ${formatDuration(job.expectedJobDuration)} | Due: ${job.dueDate}`,
               color: getKittingJobColor(job.status),
               type: 'kitting-job',
-              kittingJob: job
+              kittingJob: job,
+              __whatif: job.__whatif // Preserve what-if marker
             });
 
             currentDate.setDate(currentDate.getDate() + 1);
@@ -279,7 +365,8 @@ const Dashboard: React.FC = () => {
           description: `${job.customerName} | ${job.orderedQuantity} kits | ${formatDuration(job.expectedJobDuration)} | Due: ${job.dueDate}`,
           color: getKittingJobColor(job.status),
           type: 'kitting-job',
-          kittingJob: job
+          kittingJob: job,
+          __whatif: job.__whatif // Preserve what-if marker
         }];
       }
 
@@ -297,7 +384,8 @@ const Dashboard: React.FC = () => {
         description: `${job.customerName} | ${job.orderedQuantity} kits | ${formatDuration(job.expectedJobDuration)} | Due: ${job.dueDate}`,
         color: getKittingJobColor(job.status),
         type: 'kitting-job',
-        kittingJob: job
+        kittingJob: job,
+        __whatif: job.__whatif // Preserve what-if marker
       }];
     } catch (error) {
       console.error('Error converting job to events:', job.jobNumber, error);
@@ -714,6 +802,39 @@ const Dashboard: React.FC = () => {
                 Kitting Jobs ({kittingJobs.length})
               </button>
 
+              {/* Shift Quick Toggles */}
+              {allShifts.length > 0 && (
+                <div className="flex items-center gap-1.5 px-3 py-1 bg-gray-50 rounded-lg border border-gray-200">
+                  <span className="text-xs font-medium text-gray-600 uppercase tracking-wide mr-1">Shifts:</span>
+                  {allShifts.map((shift) => (
+                    <div key={shift.id} className="relative group">
+                      <button
+                        onClick={() => handleShiftToggle(shift.id)}
+                        className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                          shift.isActive
+                            ? 'bg-blue-500 text-white shadow-sm hover:bg-blue-600'
+                            : 'bg-white text-gray-500 border border-gray-300 hover:bg-gray-100'
+                        }`}
+                        title={`${shift.isActive ? 'Disable' : 'Enable'} ${shift.name} (${shift.startTime}-${shift.endTime})`}
+                        style={shift.isActive && shift.color ? { backgroundColor: shift.color } : {}}
+                      >
+                        {shift.name}
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditShift(shift);
+                        }}
+                        className="absolute -top-1 -right-1 w-4 h-4 bg-gray-700 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-900 flex items-center justify-center"
+                        title="Edit shift settings"
+                      >
+                        ⚙
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {/* What-If Control Button */}
               <button
                 onClick={() => setIsWhatIfPanelOpen(true)}
@@ -843,6 +964,17 @@ const Dashboard: React.FC = () => {
           onActivateScenario={whatIf.activateScenario}
           onCommitScenario={whatIf.commitScenario}
           onDiscardScenario={whatIf.discardScenario}
+        />
+
+        <ShiftConfigModal
+          isOpen={isShiftModalOpen}
+          onClose={() => {
+            setIsShiftModalOpen(false);
+            setEditingShift(null);
+          }}
+          shift={editingShift}
+          onSave={handleSaveShift}
+          onDelete={handleDeleteShift}
         />
 
         <FloatingActionButton onClick={() => window.open('/edit-job/new', '_blank')} />

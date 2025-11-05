@@ -330,3 +330,153 @@ export function calculateJobDuration(
 
   return { days, hours: remainingHours };
 }
+
+/**
+ * Check if a given date is a weekend (Saturday or Sunday)
+ */
+export function isWeekend(date: Date): boolean {
+  const day = date.getDay();
+  return day === 0 || day === 6; // 0 = Sunday, 6 = Saturday
+}
+
+/**
+ * Skip to the next weekday (Monday) if current date is a weekend
+ */
+export function skipToWeekday(date: Date): Date {
+  const result = new Date(date);
+  const day = result.getDay();
+
+  if (day === 0) {
+    // Sunday -> add 1 day to get to Monday
+    result.setDate(result.getDate() + 1);
+  } else if (day === 6) {
+    // Saturday -> add 2 days to get to Monday
+    result.setDate(result.getDate() + 2);
+  }
+
+  return result;
+}
+
+/**
+ * Get the next productive time, optionally skipping weekends
+ */
+export function getNextProductiveTimeWithConfig(
+  currentTime: Date,
+  activeShifts: Shift[],
+  includeWeekends: boolean = false
+): Date {
+  let nextTime = new Date(currentTime);
+
+  // Skip weekends if needed
+  if (!includeWeekends && isWeekend(nextTime)) {
+    nextTime = skipToWeekday(nextTime);
+    // Set to start of first shift on Monday
+    const sortedShifts = [...activeShifts].sort((a, b) => a.order - b.order);
+    if (sortedShifts.length > 0) {
+      nextTime.setHours(0, timeStringToMinutes(sortedShifts[0].startTime), 0, 0);
+    }
+  }
+
+  // Use existing logic to find next productive time
+  return getNextProductiveTime(nextTime, activeShifts);
+}
+
+/**
+ * Schedule a job forward with per-job configuration
+ * Supports custom shift selection and weekend inclusion
+ */
+export function scheduleJobForwardWithConfig(
+  startTime: Date,
+  durationSeconds: number,
+  allShifts: Shift[],
+  allowedShiftIds: string[] = [],
+  includeWeekends: boolean = false
+): Date {
+  // Determine which shifts to use
+  let shiftsToUse: Shift[];
+
+  if (allowedShiftIds.length > 0) {
+    // Use specific shifts for this job
+    shiftsToUse = allShifts.filter(shift =>
+      shift.isActive && allowedShiftIds.includes(shift.id)
+    );
+  } else {
+    // Use all active shifts (backward compatible)
+    shiftsToUse = allShifts.filter(shift => shift.isActive);
+  }
+
+  if (shiftsToUse.length === 0) {
+    console.warn('No shifts available for scheduling, using 24/7 scheduling');
+    return new Date(startTime.getTime() + durationSeconds * 1000);
+  }
+
+  let currentTime = getNextProductiveTimeWithConfig(
+    new Date(startTime),
+    shiftsToUse,
+    includeWeekends
+  );
+  let remainingSeconds = durationSeconds;
+
+  while (remainingSeconds > 0) {
+    // Check if we're on a weekend and should skip
+    if (!includeWeekends && isWeekend(currentTime)) {
+      currentTime = skipToWeekday(currentTime);
+      const sortedShifts = [...shiftsToUse].sort((a, b) => a.order - b.order);
+      if (sortedShifts.length > 0) {
+        currentTime.setHours(0, timeStringToMinutes(sortedShifts[0].startTime), 0, 0);
+      }
+      continue;
+    }
+
+    const currentShift = findShiftForTime(currentTime, shiftsToUse);
+
+    if (!currentShift) {
+      // Move to next shift
+      currentTime = getNextProductiveTimeWithConfig(currentTime, shiftsToUse, includeWeekends);
+      continue;
+    }
+
+    // Calculate time until end of current productive period
+    const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
+    let endOfPeriodMinutes: number;
+
+    // Check if there's a break coming up
+    if (currentShift.breakStart && currentShift.breakDuration) {
+      const breakStartMinutes = timeStringToMinutes(currentShift.breakStart);
+
+      if (currentMinutes < breakStartMinutes) {
+        endOfPeriodMinutes = breakStartMinutes;
+      } else {
+        // After break, go until shift end
+        let shiftEndMinutes = timeStringToMinutes(currentShift.endTime);
+        if (shiftEndMinutes <= timeStringToMinutes(currentShift.startTime)) {
+          shiftEndMinutes += 24 * 60; // Overnight shift
+        }
+        endOfPeriodMinutes = shiftEndMinutes;
+      }
+    } else {
+      // No break, go until shift end
+      let shiftEndMinutes = timeStringToMinutes(currentShift.endTime);
+      if (shiftEndMinutes <= timeStringToMinutes(currentShift.startTime)) {
+        shiftEndMinutes += 24 * 60; // Overnight shift
+      }
+      endOfPeriodMinutes = shiftEndMinutes;
+    }
+
+    const availableMinutes = endOfPeriodMinutes - currentMinutes;
+    const availableSeconds = availableMinutes * 60;
+
+    if (availableSeconds >= remainingSeconds) {
+      // Job finishes within this productive period
+      currentTime = new Date(currentTime.getTime() + remainingSeconds * 1000);
+      remainingSeconds = 0;
+    } else {
+      // Use all available time in this period, move to next
+      currentTime = new Date(currentTime.getTime() + availableSeconds * 1000);
+      remainingSeconds -= availableSeconds;
+      currentTime = getNextProductiveTimeWithConfig(currentTime, shiftsToUse, includeWeekends);
+    }
+  }
+
+  return currentTime;
+}

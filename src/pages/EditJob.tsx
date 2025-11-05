@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import CustomerAutocomplete from '../components/CustomerAutocomplete';
+import ShiftSelector from '../components/ShiftSelector';
 import { apiUrl } from '../config/api';
 
 interface RouteStep {
@@ -32,6 +33,8 @@ interface JobFormData {
   expectedKitDuration: number;
   expectedJobDuration: number;
   status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'PAUSED' | 'CANCELLED';
+  allowedShiftIds: string[];
+  includeWeekends: boolean;
   routeSteps: RouteStep[];
 }
 
@@ -57,6 +60,8 @@ const EditJob: React.FC = () => {
     expectedKitDuration: 0,
     expectedJobDuration: 0,
     status: 'SCHEDULED',
+    allowedShiftIds: [],
+    includeWeekends: false,
     routeSteps: []
   });
 
@@ -92,6 +97,8 @@ const EditJob: React.FC = () => {
           expectedKitDuration: job.expectedKitDuration || 0,
           expectedJobDuration: job.expectedJobDuration || 0,
           status: job.status || 'SCHEDULED',
+          allowedShiftIds: job.allowedShiftIds || [],
+          includeWeekends: job.includeWeekends || false,
           routeSteps: job.routeSteps || []
         });
       } else {
@@ -399,6 +406,45 @@ const EditJob: React.FC = () => {
                   <option value="BASIC">⚡ Basic - One-button simplicity</option>
                 </select>
                 <p className="text-xs text-gray-500 mt-1">Choose how workers will interact with this job during execution</p>
+              </div>
+            </div>
+
+            {/* Shift and Weekend Configuration */}
+            <div className="border-t pt-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">Shift and Weekend Configuration</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Control which shifts this job can run on and whether it can be scheduled on weekends.
+                By default, jobs use the globally active shifts and weekday-only scheduling.
+              </p>
+
+              {/* Shift Selector */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Allowed Shifts
+                </label>
+                <ShiftSelector
+                  value={formData.allowedShiftIds}
+                  onChange={(shiftIds) => handleInputChange('allowedShiftIds', shiftIds)}
+                />
+              </div>
+
+              {/* Weekend Toggle */}
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.includeWeekends}
+                    onChange={(e) => handleInputChange('includeWeekends', e.target.checked)}
+                    className="mt-1 h-5 w-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                  />
+                  <div className="flex-1">
+                    <div className="font-medium text-gray-900">Include Weekends in Scheduling</div>
+                    <div className="text-sm text-gray-600 mt-1">
+                      When enabled, this job can be scheduled on Saturdays and Sundays.
+                      Useful for rush jobs that need to finish faster than normal weekday-only scheduling allows.
+                    </div>
+                  </div>
+                </label>
               </div>
             </div>
 

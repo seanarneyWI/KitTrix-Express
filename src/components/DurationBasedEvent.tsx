@@ -80,6 +80,23 @@ const DurationBasedEvent: React.FC<DurationBasedEventProps> = ({
     }
   };
 
+  // What-if visual indicators
+  const whatIfBorder = event.__whatif
+    ? event.__whatif === 'added'
+      ? 'border-l-4 border-green-500 ring-2 ring-green-400/50'
+      : event.__whatif === 'modified'
+      ? 'border-l-4 border-yellow-500 ring-2 ring-yellow-400/50'
+      : 'border-l-4 border-red-500 ring-2 ring-red-400/50 opacity-60'
+    : 'border-l-4 border-white/20';
+
+  const whatIfEmoji = event.__whatif
+    ? event.__whatif === 'added'
+      ? '➕'
+      : event.__whatif === 'modified'
+      ? '✏️'
+      : '🗑️'
+    : null;
+
   return (
     <>
       <div
@@ -87,7 +104,7 @@ const DurationBasedEvent: React.FC<DurationBasedEventProps> = ({
         {...eventAttributes}
         {...eventListeners}
         style={eventStyle}
-        className={`${event.color} text-white rounded-lg shadow-sm cursor-move transition-all duration-200 overflow-hidden border-l-4 border-white/20 pointer-events-auto`}
+        className={`${event.color} text-white rounded-lg shadow-sm cursor-move transition-all duration-200 overflow-hidden ${whatIfBorder} pointer-events-auto`}
         onMouseEnter={() => setIsHovering(true)}
         onMouseLeave={() => setIsHovering(false)}
         onClick={(e) => {
@@ -99,6 +116,13 @@ const DurationBasedEvent: React.FC<DurationBasedEventProps> = ({
         }}
         onContextMenu={handleContextMenu}
       >
+      {/* What-if emoji badge */}
+      {whatIfEmoji && (
+        <div className="absolute top-0.5 right-0.5 text-sm bg-black/30 rounded-full w-5 h-5 flex items-center justify-center backdrop-blur-sm z-20">
+          {whatIfEmoji}
+        </div>
+      )}
+
       {/* Event Content */}
       <div className="p-1 h-full flex flex-col justify-start text-base">
         {shouldShowTitle && (
