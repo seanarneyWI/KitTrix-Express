@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { KittingJob } from '../types/kitting';
 import { apiUrl } from '../config/api';
+import { applyDelaysToJob, JobDelay } from '../utils/shiftScheduling';
 
 interface Scenario {
   id: string;
@@ -43,6 +44,7 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
   const [allScenarios, setAllScenarios] = useState<Scenario[]>([]);
   const [visibleYScenarioIds, setVisibleYScenarioIds] = useState<Set<string>>(new Set());
   const [broadcastChannel, setBroadcastChannel] = useState<BroadcastChannel | null>(null);
+  const [scenarioDelays, setScenarioDelays] = useState<Map<string, any[]>>(new Map());
 
   // Initialize BroadcastChannel for multi-window sync
   useEffect(() => {
@@ -82,6 +84,23 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
   }, []);
 
   /**
+   * Fetch delays for a specific scenario
+   */
+  const fetchScenarioDelays = async (scenarioId: string) => {
+    try {
+      const response = await fetch(apiUrl(`/api/scenarios/${scenarioId}/delays`));
+      if (!response.ok) {
+        throw new Error(`Failed to fetch delays for scenario ${scenarioId}`);
+      }
+      const delays = await response.json();
+      return delays;
+    } catch (error) {
+      console.error(`Failed to fetch delays for scenario ${scenarioId}:`, error);
+      return [];
+    }
+  };
+
+  /**
    * Fetch all scenarios from the server
    */
   const fetchScenarios = async () => {
@@ -93,6 +112,17 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
       const scenarios = await response.json();
       setAllScenarios(scenarios);
       console.log(`🔮 Fetched ${scenarios.length} scenarios`);
+
+      // Fetch delays for all scenarios
+      const delaysMap = new Map<string, any[]>();
+      for (const scenario of scenarios) {
+        const delays = await fetchScenarioDelays(scenario.id);
+        if (delays.length > 0) {
+          delaysMap.set(scenario.id, delays);
+          console.log(`  ⏰ Fetched ${delays.length} delays for scenario ${scenario.name}`);
+        }
+      }
+      setScenarioDelays(delaysMap);
     } catch (error) {
       console.error('Failed to fetch scenarios:', error);
     }
@@ -442,6 +472,20 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
         }
       }
 
+      // Apply delays to jobs in this scenario
+      const scenarioDelayList = scenarioDelays.get(scenario.id) || [];
+      if (scenarioDelayList.length > 0) {
+        console.log(`  ⏰ Applying ${scenarioDelayList.length} delays to scenario ${scenario.name}`);
+        modifiedJobs = modifiedJobs.map(job => {
+          // Get delays for this specific job
+          const jobDelays = scenarioDelayList.filter((d: JobDelay) => d.jobId === job.id);
+          if (jobDelays.length > 0) {
+            return applyDelaysToJob(job, jobDelays);
+          }
+          return job;
+        });
+      }
+
       // Filter to only jobs modified by this scenario
       const scenarioJobs = modifiedJobs.filter(job => job.__yScenario === scenario.id);
       overlayJobs.push(...scenarioJobs);
@@ -449,7 +493,7 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
 
     console.log(`🔮 Generated ${overlayJobs.length} Y overlay jobs`);
     return overlayJobs;
-  }, [productionJobs, allScenarios, visibleYScenarioIds]);
+  }, [productionJobs, allScenarios, visibleYScenarioIds, scenarioDelays]);
 
   return {
     // State

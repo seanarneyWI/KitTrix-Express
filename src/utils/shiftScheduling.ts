@@ -480,3 +480,101 @@ export function scheduleJobForwardWithConfig(
 
   return currentTime;
 }
+
+/**
+ * Apply delays to a job's route steps for Y scenario planning
+ *
+ * This function injects delay steps into a job's route steps array based on the
+ * configured delays. Delays extend job duration and are inserted after specific steps.
+ *
+ * @param job - The kitting job to apply delays to
+ * @param delays - Array of job delays to inject
+ * @returns Modified job with delays injected into route steps and updated durations
+ */
+export interface JobDelay {
+  id: string;
+  scenarioId: string;
+  jobId: string;
+  name: string;
+  duration: number;  // seconds
+  insertAfter: number;  // step order number (0 = after setup)
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export function applyDelaysToJob(job: any, delays: JobDelay[]): any {
+  if (!delays || delays.length === 0) {
+    return job;  // No delays to apply
+  }
+
+  console.log(`⏰ Applying ${delays.length} delays to job ${job.jobNumber}`);
+
+  // Sort route steps by order
+  const sortedSteps = [...(job.routeSteps || [])].sort((a, b) => a.order - b.order);
+
+  // Group delays by insertAfter position
+  const delaysByPosition = new Map<number, JobDelay[]>();
+  delays.forEach(delay => {
+    if (!delaysByPosition.has(delay.insertAfter)) {
+      delaysByPosition.set(delay.insertAfter, []);
+    }
+    delaysByPosition.get(delay.insertAfter)!.push(delay);
+  });
+
+  // Build new route steps array with delays injected
+  const newRouteSteps: any[] = [];
+  let stepOrderCounter = 1;
+
+  // Insert delays after setup (insertAfter = 0)
+  const setupDelays = delaysByPosition.get(0) || [];
+  setupDelays.forEach((delay, index) => {
+    newRouteSteps.push({
+      id: `delay-${delay.id}`,
+      name: `⏰ ${delay.name}`,
+      expectedSeconds: delay.duration,
+      order: stepOrderCounter++,
+      __isDelay: true,  // Mark as synthetic delay step
+      __delayId: delay.id
+    });
+  });
+
+  // Insert regular steps and their associated delays
+  sortedSteps.forEach(step => {
+    // Add the regular step
+    newRouteSteps.push({
+      ...step,
+      order: stepOrderCounter++
+    });
+
+    // Add any delays that come after this step
+    const stepsAfter = delaysByPosition.get(step.order) || [];
+    stepsAfter.forEach(delay => {
+      newRouteSteps.push({
+        id: `delay-${delay.id}`,
+        name: `⏰ ${delay.name}`,
+        expectedSeconds: delay.duration,
+        order: stepOrderCounter++,
+        __isDelay: true,
+        __delayId: delay.id
+      });
+    });
+  });
+
+  // Calculate total delay duration
+  const totalDelaySeconds = delays.reduce((sum, delay) => sum + delay.duration, 0);
+
+  // Calculate new job durations with delays included
+  const originalExpectedJobDuration = job.expectedJobDuration || 0;
+  const newExpectedJobDuration = originalExpectedJobDuration + totalDelaySeconds;
+
+  console.log(`  ⏰ Original EJD: ${originalExpectedJobDuration}s, Added delays: ${totalDelaySeconds}s, New EJD: ${newExpectedJobDuration}s`);
+
+  // Return modified job
+  return {
+    ...job,
+    routeSteps: newRouteSteps,
+    expectedJobDuration: newExpectedJobDuration,
+    __delaysApplied: true,
+    __totalDelaySeconds: totalDelaySeconds
+  };
+}
