@@ -967,6 +967,7 @@ const Dashboard: React.FC = () => {
           onToggleScenarioVisibility={whatIf.toggleYScenarioVisibility}
           isScenarioVisible={(id) => whatIf.visibleYScenarioIds.has(id)}
           yOverlayCount={whatIf.yOverlayJobs.length}
+          allJobs={kittingJobs}
         />
 
         <WhatIfControl

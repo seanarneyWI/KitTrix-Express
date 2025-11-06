@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { KittingJob } from '../types/kitting';
 import { formatDuration } from '../utils/kittingCalculations';
+import DelayEditor from './DelayEditor';
 
 interface Scenario {
   id: string;
@@ -36,6 +37,7 @@ interface JobFilterPanelProps {
   onToggleScenarioVisibility?: (scenarioId: string) => void;
   isScenarioVisible?: (scenarioId: string) => boolean;
   yOverlayCount?: number;
+  allJobs?: KittingJob[];  // All jobs for delay editor
 }
 
 const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
@@ -61,10 +63,20 @@ const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
   visibleScenarios = [],
   onToggleScenarioVisibility,
   isScenarioVisible,
-  yOverlayCount = 0
+  yOverlayCount = 0,
+  allJobs = []
 }) => {
   const [activeTab, setActiveTab] = useState<'jobs' | 'yoverlays'>('jobs');
   const [groupBy, setGroupBy] = useState<'none' | 'job#' | 'customer' | 'status'>('none');
+  const [delayEditorState, setDelayEditorState] = useState<{
+    isOpen: boolean;
+    scenario: Scenario | null;
+    job: KittingJob | null;
+  }>({
+    isOpen: false,
+    scenario: null,
+    job: null
+  });
 
   // Close on Escape key
   useEffect(() => {
@@ -411,13 +423,37 @@ const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
 
                           {/* Scenario Info */}
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="font-semibold text-gray-900">{scenario.name}</span>
-                              {isActive && (
-                                <span className="px-2 py-0.5 text-xs font-medium rounded bg-purple-500 text-white">
-                                  ACTIVE
-                                </span>
-                              )}
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-gray-900">{scenario.name}</span>
+                                {isActive && (
+                                  <span className="px-2 py-0.5 text-xs font-medium rounded bg-purple-500 text-white">
+                                    ACTIVE
+                                  </span>
+                                )}
+                              </div>
+                              {/* Manage Delays Button */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  // For now, just pick the first job from allJobs as a simple implementation
+                                  // In production, you'd show a job selector
+                                  if (allJobs.length > 0) {
+                                    setDelayEditorState({
+                                      isOpen: true,
+                                      scenario,
+                                      job: allJobs[0]
+                                    });
+                                  } else {
+                                    alert('No jobs available. Create a job first.');
+                                  }
+                                }}
+                                className="px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200 transition-colors flex items-center gap-1"
+                                title="Manage delays for this scenario"
+                              >
+                                <span>⚙️</span>
+                                <span>Delays</span>
+                              </button>
                             </div>
 
                             {scenario.description && (
@@ -465,6 +501,21 @@ const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Delay Editor Modal */}
+      {delayEditorState.isOpen && delayEditorState.scenario && delayEditorState.job && (
+        <DelayEditor
+          isOpen={delayEditorState.isOpen}
+          onClose={() => setDelayEditorState({ isOpen: false, scenario: null, job: null })}
+          scenarioId={delayEditorState.scenario.id}
+          scenarioName={delayEditorState.scenario.name}
+          job={delayEditorState.job}
+          onDelaysChanged={() => {
+            // Optionally refresh data or notify parent
+            console.log('⏰ Delays changed for scenario', delayEditorState.scenario?.name);
+          }}
+        />
+      )}
     </>
   );
 };
