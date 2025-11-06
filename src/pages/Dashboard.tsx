@@ -411,7 +411,8 @@ const Dashboard: React.FC = () => {
   // Combine events and kitting jobs for display (use visible jobs from filter)
   const allCalendarItems = [
     ...events,
-    ...jobFilters.visibleJobs.flatMap(kittingJobToEvents)
+    ...jobFilters.visibleJobs.flatMap(kittingJobToEvents),
+    ...whatIf.yOverlayJobs.flatMap(kittingJobToEvents)  // Add Y scenario overlay jobs
   ];
 
   // Log all calendar items for debugging

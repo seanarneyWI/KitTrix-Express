@@ -80,16 +80,30 @@ const DurationBasedEvent: React.FC<DurationBasedEventProps> = ({
     }
   };
 
-  // What-if visual indicators
-  const whatIfBorder = event.__whatif
+  // Y Scenario ghost styling (takes precedence over what-if)
+  const isYScenario = !!event.__yScenario;
+  const yScenarioDeleted = event.__yScenarioDeleted;
+
+  // Ghost styling for Y scenarios
+  const yScenarioBorder = isYScenario
+    ? yScenarioDeleted
+      ? 'border-2 border-dashed border-red-400/60 opacity-40'
+      : 'border-2 border-dashed border-purple-400/60'
+    : '';
+
+  const yScenarioOpacity = isYScenario && !yScenarioDeleted ? 'opacity-50' : '';
+  const yScenarioBackdrop = isYScenario && !yScenarioDeleted ? 'backdrop-blur-[2px]' : '';
+
+  // What-if visual indicators (only shown if NOT a Y scenario)
+  const whatIfBorder = !isYScenario && event.__whatif
     ? event.__whatif === 'added'
       ? 'border-l-4 border-green-500 ring-2 ring-green-400/50'
       : event.__whatif === 'modified'
       ? 'border-l-4 border-yellow-500 ring-2 ring-yellow-400/50'
       : 'border-l-4 border-red-500 ring-2 ring-red-400/50 opacity-60'
-    : 'border-l-4 border-white/20';
+    : !isYScenario ? 'border-l-4 border-white/20' : '';
 
-  const whatIfEmoji = event.__whatif
+  const whatIfEmoji = !isYScenario && event.__whatif
     ? event.__whatif === 'added'
       ? '➕'
       : event.__whatif === 'modified'
@@ -104,7 +118,7 @@ const DurationBasedEvent: React.FC<DurationBasedEventProps> = ({
         {...eventAttributes}
         {...eventListeners}
         style={eventStyle}
-        className={`${event.color} text-white rounded-lg shadow-sm cursor-move transition-all duration-200 overflow-hidden ${whatIfBorder} pointer-events-auto`}
+        className={`${event.color} text-white rounded-lg shadow-sm cursor-move transition-all duration-200 overflow-hidden ${whatIfBorder} ${yScenarioBorder} ${yScenarioOpacity} ${yScenarioBackdrop} pointer-events-auto`}
         onMouseEnter={() => setIsHovering(true)}
         onMouseLeave={() => setIsHovering(false)}
         onClick={(e) => {
@@ -116,6 +130,13 @@ const DurationBasedEvent: React.FC<DurationBasedEventProps> = ({
         }}
         onContextMenu={handleContextMenu}
       >
+      {/* Y Scenario name badge */}
+      {isYScenario && event.__yScenarioName && !yScenarioDeleted && (
+        <div className="absolute top-0.5 left-0.5 text-xs bg-purple-600/90 text-white px-1.5 py-0.5 rounded backdrop-blur-sm z-20 font-medium">
+          🔮 {event.__yScenarioName}
+        </div>
+      )}
+
       {/* What-if emoji badge */}
       {whatIfEmoji && (
         <div className="absolute top-0.5 right-0.5 text-sm bg-black/30 rounded-full w-5 h-5 flex items-center justify-center backdrop-blur-sm z-20">
