@@ -505,7 +505,344 @@ const whatIfEmoji = event.__whatif
 - Shift edit modal has no "duplicate shift" feature
 - What-if deleted jobs still visible on calendar (just dimmed with 🗑️ badge)
 
+### Y Scenario Overlay System with Delay Injection (November 5, 2025)
+
+**Problem**: Production schedulers needed to compare multiple what-if scenarios simultaneously on the calendar and model the impact of delays (maintenance, meetings, equipment downtime) on job schedules.
+
+**Implementation**: Complete 5-phase system spanning UI, database, API, and scheduling logic.
+
+---
+
+#### Phase 1: Filter Panel Tab UI & Dual Badges (Commit: 97655eca)
+
+**Components**:
+- **Tab Interface**: Added Jobs / Y Overlays tabs to `JobFilterPanel.tsx`
+  - "📋 Jobs" tab (blue) - original job filtering
+  - "🔮 Y Overlays" tab (purple) - scenario overlay management
+- **Scenario List UI**:
+  - Checkboxes to toggle scenario visibility (multi-select supported)
+  - Purple background when visible
+  - "ACTIVE" badge for active scenario
+  - Shows change count and creation date
+  - Empty state with instructions: "Click 🔮 What-If button to create scenarios"
+- **Dual Badge System** on Filters button:
+  - **Red badge** (top-right): Hidden jobs count
+  - **Purple badge** (bottom-right): Y overlay jobs count
+  - Badges only appear when count > 0
+
+**Hooks**:
+- **useYScenarioFilters** (`src/hooks/useYScenarioFilters.ts`):
+  - Manages overlay visibility (Set of scenario IDs)
+  - Search/filter scenarios by name or description
+  - Group by: none, job#, customer, status
+  - localStorage persistence
+  - Returns: visibleScenarios, filteredScenarios, toggleScenarioVisibility()
+
+**Technical Details**:
+```typescript
+// JobFilterPanel.tsx
+const [activeTab, setActiveTab] = useState<'jobs' | 'yoverlays'>('jobs');
+const [groupBy, setGroupBy] = useState<'none' | 'job#' | 'customer' | 'status'>('none');
+
+// Dashboard.tsx - Dual badges
+{jobFilters.hiddenJobCount > 0 && (
+  <span className="absolute -top-2 -right-2 bg-red-500">
+    {jobFilters.hiddenJobCount}
+  </span>
+)}
+{whatIf.yOverlayJobs.length > 0 && (
+  <span className="absolute -bottom-2 -right-2 bg-purple-500">
+    {whatIf.yOverlayJobs.length}
+  </span>
+)}
+```
+
+---
+
+#### Phase 2: Database Schema & Delay API Endpoints (Commit: 8d115c86)
+
+**Database Migration** (`prisma/migrations/20251105_add_job_delays.sql`):
+- **✅ SAFE**: Creates new `job_delays` table only (no modifications to existing tables)
+- **Rollback SQL**: `DROP TABLE job_delays;`
+
+**JobDelay Model** (`prisma/schema.prisma`):
+```typescript
+model JobDelay {
+  id           String   @id @default(cuid())
+  scenarioId   String   @map("scenario_id")
+  jobId        String   @map("job_id")
+  name         String   // "Equipment maintenance", "Team meeting"
+  duration     Int      // Duration in seconds
+  insertAfter  Int      @map("insert_after") // Insert after step order # (0 = after setup)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  scenario     Scenario @relation(fields: [scenarioId], onDelete: Cascade)
+
+  @@index([scenarioId])
+  @@index([jobId])
+  @@map("job_delays")
+}
+```
+
+**API Endpoints** (`server/index.cjs`):
+1. **GET /api/scenarios/:id/delays** - Fetch all delays for scenario
+2. **GET /api/scenarios/:scenarioId/jobs/:jobId/delays** - Job-specific delays
+3. **POST /api/scenarios/:id/delays** - Create new delay
+   - Validates: jobId, name, duration > 0, insertAfter >= 0
+   - Returns created delay object
+4. **PUT /api/delays/:id** - Update existing delay (partial updates)
+5. **DELETE /api/delays/:id** - Remove delay (with 404 check)
+
+**Field Descriptions**:
+- `name`: Human-readable description (e.g., "Equipment maintenance")
+- `duration`: Delay duration in seconds
+- `insertAfter`: Route step order number to insert delay after (0 = after setup, 1 = after step 1, etc.)
+
+---
+
+#### Phase 3: Delay Editor UI Components (Commit: cb8f272d, 52f8e983)
+
+**DelayEditor.tsx** - Modal for managing job delays:
+- **Layout**:
+  - Header: Scenario name, job number, customer name
+  - Body: Scrollable list of job route steps
+  - Footer: Delay count summary
+- **Route Step Display**:
+  - Blue cards: Setup / Make-Ready & Take-Down
+  - Gray cards: Regular route steps (with step order #)
+  - Yellow cards (indented): Delays injected after steps
+- **Features**:
+  - "Add Delay After" button on each step
+  - Delete delay button (trash icon) with confirmation
+  - Shows delay duration formatted (e.g., "1h 30m")
+  - Auto-refreshes when delays change
+- **API Integration**:
+  - Fetches delays on open: `GET /api/scenarios/:scenarioId/jobs/:jobId/delays`
+  - Deletes delay: `DELETE /api/delays/:id`
+
+**AddDelayDialog.tsx** - Nested modal for creating delays:
+- **Form Fields**:
+  - Delay name (text input, required)
+  - Hours (0-999)
+  - Minutes (0-59, capped)
+  - Shows total in seconds
+- **Quick Presets**: Buttons for 15m, 30m, 1h, 2h
+- **Validation**:
+  - Name required
+  - Duration must be > 0
+- **Creates delay**: `POST /api/scenarios/:scenarioId/delays`
+- **z-index**: 60 (overlays DelayEditor at z-50)
+
+**Wiring to UI** (Commit: 52f8e983):
+- **"⚙️ Delays" button** added to each scenario in Y Overlays tab
+- Yellow badge styling for visibility
+- Opens DelayEditor with first job (simple implementation)
+- Shows alert if no jobs available
+- Passes `allJobs={kittingJobs}` from Dashboard to JobFilterPanel
+
+**User Workflow**:
+```
+1. Open Filters → 🔮 Y Overlays tab
+2. Click "⚙️ Delays" on any scenario
+3. DelayEditor opens showing job's route steps
+4. Click "Add Delay After" on any step
+5. AddDelayDialog opens
+6. Enter delay name and duration
+7. Click "Add Delay"
+8. Delay appears in yellow card below step
+9. Close editor → delays saved to database
+```
+
+---
+
+#### Phase 4: Delay Application Logic (Commit: 6049b64c)
+
+**applyDelaysToJob()** (`src/utils/shiftScheduling.ts`):
+- **Purpose**: Inject synthetic delay steps into job's route steps array
+- **Algorithm**:
+  1. Sort route steps by order
+  2. Group delays by `insertAfter` position
+  3. Build new route steps array:
+     - Insert delays after setup (insertAfter = 0)
+     - For each route step:
+       - Add the step
+       - Add delays that come after it
+  4. Renumber all steps sequentially
+  5. Calculate total delay duration
+  6. Extend job duration: `expectedJobDuration += totalDelaySeconds`
+
+**Delay Step Structure**:
+```typescript
+{
+  id: `delay-${delay.id}`,           // Synthetic ID
+  name: `⏰ ${delay.name}`,           // ⏰ prefix for visibility
+  expectedSeconds: delay.duration,    // Delay duration
+  order: stepOrderCounter++,          // Sequential order
+  __isDelay: true,                    // Marker for UI
+  __delayId: delay.id                 // Original delay ID
+}
+```
+
+**Modified Job Structure**:
+```typescript
+{
+  ...job,
+  routeSteps: newRouteSteps,          // Steps + delays
+  expectedJobDuration: newEJD,         // Extended duration
+  __delaysApplied: true,              // Application marker
+  __totalDelaySeconds: totalSeconds   // Total delay time
+}
+```
+
+**useWhatIfMode Updates** (`src/hooks/useWhatIfMode.ts`):
+- **State**: `scenarioDelays: Map<scenarioId, delays[]>`
+- **fetchScenarioDelays()**: Fetches delays for specific scenario
+- **fetchScenarios()**: Enhanced to fetch delays for all scenarios
+- **yOverlayJobs useMemo**: Apply delays AFTER applying scenario changes
+  ```typescript
+  // Apply scenario changes (ADD/MODIFY/DELETE)
+  for (const change of scenario.changes) { ... }
+
+  // Apply delays to jobs in this scenario
+  const scenarioDelayList = scenarioDelays.get(scenario.id) || [];
+  modifiedJobs = modifiedJobs.map(job => {
+    const jobDelays = scenarioDelayList.filter(d => d.jobId === job.id);
+    if (jobDelays.length > 0) {
+      return applyDelaysToJob(job, jobDelays);
+    }
+    return job;
+  });
+  ```
+
+---
+
+#### Phase 5: Ghost Overlay Rendering (Commit: a808610a)
+
+**Calendar Integration** (`src/pages/Dashboard.tsx`):
+```typescript
+const allCalendarItems = [
+  ...events,
+  ...jobFilters.visibleJobs.flatMap(kittingJobToEvents),
+  ...whatIf.yOverlayJobs.flatMap(kittingJobToEvents)  // Y overlays
+];
+```
+
+**Ghost Styling** (`src/components/DurationBasedEvent.tsx`):
+- **Y Scenario Detection**: `const isYScenario = !!event.__yScenario;`
+- **Visual Styles**:
+  - Semi-transparent: `opacity-50`
+  - Dashed purple border: `border-2 border-dashed border-purple-400/60`
+  - Backdrop blur: `backdrop-blur-[2px]`
+  - Deleted jobs: Red dashed border + `opacity-40`
+- **Scenario Name Badge** (top-left):
+  ```tsx
+  {isYScenario && (
+    <div className="absolute top-0.5 left-0.5 bg-purple-600/90 text-white">
+      🔮 {event.__yScenarioName}
+    </div>
+  )}
+  ```
+- **Priority**: Y scenario styling overrides what-if styling (prevents conflicts)
+
+**Multi-Scenario Support**:
+- Each scenario shows its own color-coded ghost jobs
+- Jobs can belong to multiple scenarios (different badges)
+- Overlays update automatically when scenarios toggled
+- Each overlay shows extended duration from delays
+
+---
+
+#### Complete System Architecture
+
+```
+User Flow:
+1. Create scenario (🔮 What-If button)
+2. Drag jobs to new dates (tracked as changes)
+3. Open Filters → Y Overlays tab
+4. Check scenarios to show as overlays
+5. Click ⚙️ Delays on scenario
+6. Add delays after route steps
+7. Close editor → delays saved
+8. Calendar shows ghost overlays with extended durations
+9. Compare multiple scenarios side-by-side
+10. Commit preferred scenario to production
+
+Data Flow:
+Production Jobs → Scenario Changes → Apply Changes → Apply Delays → Ghost Overlays → Calendar Rendering
+
+Storage:
+- Scenarios: scenarios table
+- Changes: scenario_changes table (JSONB)
+- Delays: job_delays table
+- Visibility: localStorage (Y scenario filters)
+```
+
+---
+
+#### Files Modified/Created
+
+**Created**:
+- `src/hooks/useYScenarioFilters.ts` (150 lines)
+- `src/components/DelayEditor.tsx` (278 lines)
+- `src/components/AddDelayDialog.tsx` (227 lines)
+- `prisma/migrations/20251105_add_job_delays.sql` (33 lines)
+
+**Modified**:
+- `src/components/JobFilterPanel.tsx` (+114 lines) - Tab UI, scenario list, delay button
+- `src/pages/Dashboard.tsx` (+7 lines) - Y overlay rendering, allJobs prop
+- `src/components/DurationBasedEvent.tsx` (+28 lines) - Ghost styling
+- `src/hooks/useWhatIfMode.ts` (+43 lines) - Delay fetching and application
+- `src/utils/shiftScheduling.ts` (+97 lines) - applyDelaysToJob function
+- `server/index.cjs` (+148 lines) - 5 delay API endpoints
+- `prisma/schema.prisma` (+19 lines) - JobDelay model
+
+**Commits**:
+1. `97655eca` - Wire Y scenario filters to UI with dual badges
+2. `a808610a` - Implement Y scenario ghost overlay rendering on calendar
+3. `8d115c86` - Add JobDelay model and delay management API endpoints
+4. `cb8f272d` - Create delay management UI components
+5. `52f8e983` - Wire delay editor to Y Overlays tab with Delays button
+6. `6049b64c` - Implement delay application logic for Y scenario overlays
+
+**Total Implementation**: ~1,000 lines of new code + 336 lines of modifications
+
+---
+
+#### Technical Highlights
+
+**Multi-Window Sync**:
+- BroadcastChannel API syncs scenario visibility across tabs
+- localStorage persists Y scenario filter preferences
+- Scenario changes broadcast to all open windows
+
+**Performance Optimization**:
+- Delays fetched once per scenario (cached in Map)
+- useMemo prevents unnecessary recomputation
+- Delays only applied to visible scenarios
+
+**Data Integrity**:
+- CASCADE delete: Removing scenario removes all delays
+- Atomic operations: Scenario commit applies all changes together
+- Validation: Duration > 0, insertAfter >= 0, name required
+
+**Extensibility**:
+- JobDelay model supports future fields (e.g., delay type, responsible party)
+- applyDelaysToJob() can be extended for resource constraints
+- Ghost styling can be customized per scenario
+
+---
+
+#### Known Limitations
+
+- Delay editor picks first job (no job selector yet)
+- Delays don't account for shift boundaries (yet)
+- No delay templates or presets
+- Cannot copy delays between scenarios
+- No delay analytics (total impact, critical path)
+
 ## Next Steps & Future Improvements
+
+### Infrastructure & DevOps
 1. Implement station release when browser crashes (not just clean exit)
 2. Add cache-busting headers to prevent stale JavaScript issues
 3. Set up automated deployment via GitHub Actions
@@ -514,8 +851,22 @@ const whatIfEmoji = event.__whatif
 6. Configure container auto-restart on failure
 7. Optimize Docker image size further
 8. Set up disk space monitoring/alerts
-9. Extend what-if mode to support job creation/deletion (not just MODIFY)
-10. Add scenario comparison view (side-by-side before/after)
-11. Add shift validation before deletion (check for dependent jobs)
-12. Add bulk shift operations (activate/deactivate all shifts)
-13. Add "duplicate shift" feature to shift config modal
+
+### Shift Management
+9. Add shift validation before deletion (check for dependent jobs)
+10. Add bulk shift operations (activate/deactivate all shifts)
+11. Add "duplicate shift" feature to shift config modal
+12. Implement break time visualization on calendar
+
+### What-If & Y Scenario System
+13. Extend what-if mode to support job creation/deletion (not just MODIFY)
+14. Add scenario comparison view (side-by-side before/after)
+15. **Add job selector to delay editor** (currently picks first job)
+16. **Implement delay templates/presets** (e.g., "Standard Lunch", "Equipment Maintenance")
+17. **Add delay copy between scenarios**
+18. **Add delay analytics dashboard** (total impact, critical path analysis)
+19. **Account for shift boundaries in delay application** (don't extend into non-productive time)
+20. **Add delay type categorization** (maintenance, break, meeting, etc.)
+21. **Implement delay visualization on job cards** (⏰ icon with count)
+22. **Add scenario notes/changelog** (track why changes were made)
+23. **Export scenario reports** (PDF/Excel with before/after comparison)
