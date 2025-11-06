@@ -41,6 +41,7 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
   const [mode, setMode] = useState<'production' | 'whatif'>('production');
   const [activeScenario, setActiveScenario] = useState<Scenario | null>(null);
   const [allScenarios, setAllScenarios] = useState<Scenario[]>([]);
+  const [visibleYScenarioIds, setVisibleYScenarioIds] = useState<Set<string>>(new Set());
   const [broadcastChannel, setBroadcastChannel] = useState<BroadcastChannel | null>(null);
 
   // Initialize BroadcastChannel for multi-window sync
@@ -368,6 +369,88 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
     });
   };
 
+  /**
+   * Toggle Y scenario visibility for overlay
+   */
+  const toggleYScenarioVisibility = (scenarioId: string) => {
+    setVisibleYScenarioIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(scenarioId)) {
+        newSet.delete(scenarioId);
+        console.log(`🔮 Hiding Y scenario overlay: ${scenarioId}`);
+      } else {
+        newSet.add(scenarioId);
+        console.log(`🔮 Showing Y scenario overlay: ${scenarioId}`);
+      }
+      return newSet;
+    });
+  };
+
+  /**
+   * Get jobs from visible Y scenarios for overlay rendering
+   */
+  const yOverlayJobs = useMemo(() => {
+    if (visibleYScenarioIds.size === 0) {
+      return [];
+    }
+
+    const visibleScenarios = allScenarios.filter(s => visibleYScenarioIds.has(s.id));
+    console.log(`🔮 Computing Y overlay jobs from ${visibleScenarios.length} visible scenarios`);
+
+    const overlayJobs: any[] = [];
+
+    visibleScenarios.forEach(scenario => {
+      // Apply scenario changes to production jobs
+      let modifiedJobs = [...productionJobs];
+
+      for (const change of scenario.changes) {
+        switch (change.operation) {
+          case 'ADD':
+            modifiedJobs.push({
+              ...change.changeData,
+              __yScenario: scenario.id,
+              __yScenarioName: scenario.name
+            } as any);
+            break;
+
+          case 'MODIFY':
+            modifiedJobs = modifiedJobs.map(job =>
+              job.id === change.jobId
+                ? {
+                    ...job,
+                    ...change.changeData,
+                    __yScenario: scenario.id,
+                    __yScenarioName: scenario.name
+                  } as any
+                : job
+            );
+            break;
+
+          case 'DELETE':
+            // Mark job as deleted in Y scenario
+            modifiedJobs = modifiedJobs.map(job =>
+              job.id === change.jobId
+                ? {
+                    ...job,
+                    __yScenario: scenario.id,
+                    __yScenarioName: scenario.name,
+                    __yScenarioDeleted: true
+                  } as any
+                : job
+            );
+            break;
+        }
+      }
+
+      // Filter to only jobs modified by this scenario
+      const scenarioJobs = modifiedJobs.filter(job => job.__yScenario === scenario.id);
+      overlayJobs.push(...scenarioJobs);
+    });
+
+    console.log(`🔮 Generated ${overlayJobs.length} Y overlay jobs`);
+    return overlayJobs;
+  }, [productionJobs, allScenarios, visibleYScenarioIds]);
+
   return {
     // State
     mode,
@@ -375,6 +458,8 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
     allScenarios,
     jobs: whatIfJobs,  // Returns production or what-if jobs based on mode
     changeCount: activeScenario?.changes.length || 0,
+    yOverlayJobs,  // Jobs from visible Y scenarios for overlay rendering
+    visibleYScenarioIds,
 
     // Actions
     switchMode,
@@ -385,9 +470,11 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
     discardScenario,
     fetchScenarios,
     fetchActiveScenario,
+    toggleYScenarioVisibility,
 
     // Helpers
     isWhatIfMode: mode === 'whatif',
-    hasActiveScenario: !!activeScenario
+    hasActiveScenario: !!activeScenario,
+    hasYOverlays: visibleYScenarioIds.size > 0
   };
 }
