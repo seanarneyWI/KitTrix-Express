@@ -317,6 +317,7 @@ model Scenario {
 
   // Relations
   changes     ScenarioChange[]
+  delays      JobDelay[]
 
   @@map("scenarios")
 }
@@ -336,6 +337,24 @@ model ScenarioChange {
   @@index([scenarioId])
   @@index([jobId])
   @@map("scenario_changes")
+}
+
+model JobDelay {
+  id           String   @id @default(cuid())
+  scenarioId   String   @map("scenario_id")
+  jobId        String   @map("job_id")
+  name         String   // "Equipment maintenance", "Team meeting", etc.
+  duration     Int      // Duration in seconds
+  insertAfter  Int      @map("insert_after") // Insert delay after this route step order number
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  scenario     Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+
+  @@index([scenarioId])
+  @@index([jobId])
+  @@map("job_delays")
 }
 
 model Company {

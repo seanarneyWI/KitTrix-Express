@@ -770,6 +770,148 @@ app.delete('/api/scenarios/:id', async (req, res) => {
   }
 });
 
+// ==================== Job Delay API (Y Scenario Delays) ====================
+
+// Get all delays for a scenario
+app.get('/api/scenarios/:id/delays', async (req, res) => {
+  try {
+    const { id: scenarioId } = req.params;
+
+    const delays = await prisma.jobDelay.findMany({
+      where: { scenarioId },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    console.log(`⏰ Fetched ${delays.length} delays for scenario ${scenarioId}`);
+    res.json(delays);
+  } catch (error) {
+    console.error('Error fetching delays:', error);
+    res.status(500).json({ error: 'Failed to fetch delays' });
+  }
+});
+
+// Get delays for a specific job in a scenario
+app.get('/api/scenarios/:scenarioId/jobs/:jobId/delays', async (req, res) => {
+  try {
+    const { scenarioId, jobId } = req.params;
+
+    const delays = await prisma.jobDelay.findMany({
+      where: {
+        scenarioId,
+        jobId
+      },
+      orderBy: { insertAfter: 'asc' }
+    });
+
+    console.log(`⏰ Fetched ${delays.length} delays for job ${jobId} in scenario ${scenarioId}`);
+    res.json(delays);
+  } catch (error) {
+    console.error('Error fetching job delays:', error);
+    res.status(500).json({ error: 'Failed to fetch job delays' });
+  }
+});
+
+// Create new delay for a job in a scenario
+app.post('/api/scenarios/:id/delays', async (req, res) => {
+  try {
+    const { id: scenarioId } = req.params;
+    const { jobId, name, duration, insertAfter } = req.body;
+
+    // Validate required fields
+    if (!jobId || !name || duration === undefined || insertAfter === undefined) {
+      return res.status(400).json({
+        error: 'Missing required fields: jobId, name, duration, insertAfter'
+      });
+    }
+
+    // Validate duration is positive
+    if (duration <= 0) {
+      return res.status(400).json({ error: 'Duration must be positive' });
+    }
+
+    // Validate insertAfter is non-negative
+    if (insertAfter < 0) {
+      return res.status(400).json({ error: 'insertAfter must be non-negative' });
+    }
+
+    const delay = await prisma.jobDelay.create({
+      data: {
+        scenarioId,
+        jobId,
+        name: name.trim(),
+        duration: parseInt(duration),
+        insertAfter: parseInt(insertAfter)
+      }
+    });
+
+    console.log(`⏰ Created delay "${delay.name}" (${delay.duration}s) for job ${jobId}`);
+    res.json(delay);
+  } catch (error) {
+    console.error('Error creating delay:', error);
+    res.status(500).json({ error: 'Failed to create delay' });
+  }
+});
+
+// Update an existing delay
+app.put('/api/delays/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, duration, insertAfter } = req.body;
+
+    const updateData = {};
+    if (name !== undefined) updateData.name = name.trim();
+    if (duration !== undefined) {
+      if (duration <= 0) {
+        return res.status(400).json({ error: 'Duration must be positive' });
+      }
+      updateData.duration = parseInt(duration);
+    }
+    if (insertAfter !== undefined) {
+      if (insertAfter < 0) {
+        return res.status(400).json({ error: 'insertAfter must be non-negative' });
+      }
+      updateData.insertAfter = parseInt(insertAfter);
+    }
+
+    const delay = await prisma.jobDelay.update({
+      where: { id },
+      data: updateData
+    });
+
+    console.log(`⏰ Updated delay ${id}`);
+    res.json(delay);
+  } catch (error) {
+    console.error('Error updating delay:', error);
+    res.status(500).json({ error: 'Failed to update delay' });
+  }
+});
+
+// Delete a delay
+app.delete('/api/delays/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const delay = await prisma.jobDelay.findUnique({
+      where: { id },
+      select: { name: true }
+    });
+
+    if (!delay) {
+      return res.status(404).json({ error: 'Delay not found' });
+    }
+
+    await prisma.jobDelay.delete({
+      where: { id }
+    });
+
+    console.log(`⏰ Deleted delay: ${delay.name}`);
+    res.json({ success: true, message: 'Delay deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting delay:', error);
+    res.status(500).json({ error: 'Failed to delete delay' });
+  }
+});
+
 // Users API
 app.get('/api/users', async (req, res) => {
   try {
