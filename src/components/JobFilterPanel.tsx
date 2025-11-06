@@ -2,6 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { KittingJob } from '../types/kitting';
 import { formatDuration } from '../utils/kittingCalculations';
 
+interface Scenario {
+  id: string;
+  name: string;
+  description?: string;
+  isActive: boolean;
+  changes: any[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 interface JobFilterPanelProps {
   isOpen: boolean;
   onClose: () => void;
@@ -20,6 +30,12 @@ interface JobFilterPanelProps {
   onJumpToJob: (job: KittingJob) => void;
   isJobVisible: (jobId: string) => boolean;
   hiddenJobCount: number;
+  // Y Scenario props
+  allScenarios?: Scenario[];
+  visibleScenarios?: Scenario[];
+  onToggleScenarioVisibility?: (scenarioId: string) => void;
+  isScenarioVisible?: (scenarioId: string) => boolean;
+  yOverlayCount?: number;
 }
 
 const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
@@ -39,7 +55,13 @@ const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
   onResetFilters,
   onJumpToJob,
   isJobVisible,
-  hiddenJobCount
+  hiddenJobCount,
+  // Y Scenario props
+  allScenarios = [],
+  visibleScenarios = [],
+  onToggleScenarioVisibility,
+  isScenarioVisible,
+  yOverlayCount = 0
 }) => {
   const [activeTab, setActiveTab] = useState<'jobs' | 'yoverlays'>('jobs');
   const [groupBy, setGroupBy] = useState<'none' | 'job#' | 'customer' | 'status'>('none');
@@ -340,22 +362,86 @@ const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
             </>
           ) : (
             /* Y Overlays Tab Content */
-            <div className="text-center py-12">
-              <div className="text-6xl mb-4">🔮</div>
-              <h4 className="text-lg font-semibold text-gray-800 mb-2">Y Scenario Overlays</h4>
-              <p className="text-sm text-gray-600 mb-6">
-                Compare multiple what-if scenarios side-by-side on the calendar
-              </p>
-              <div className="bg-purple-50 rounded-lg p-4 border border-purple-200 text-left max-w-sm mx-auto">
-                <p className="text-xs text-purple-900 font-medium mb-2">Coming Soon:</p>
-                <ul className="text-xs text-purple-800 space-y-1 list-disc list-inside">
-                  <li>Select multiple scenarios to overlay</li>
-                  <li>Add delays to job route steps</li>
-                  <li>Semi-transparent ghost visualization</li>
-                  <li>Color-coded scenario comparison</li>
-                </ul>
+            <>
+              <div className="text-xs text-gray-500 mb-3">
+                {visibleScenarios.length} of {allScenarios.length} scenarios visible
+                {yOverlayCount > 0 && <span className="text-purple-600 font-medium"> ({yOverlayCount} active overlays)</span>}
               </div>
-            </div>
+
+              {allScenarios.length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="text-6xl mb-4">🔮</div>
+                  <h4 className="text-lg font-semibold text-gray-800 mb-2">No Y Scenarios Yet</h4>
+                  <p className="text-sm text-gray-600 mb-6">
+                    Create what-if scenarios to overlay and compare on the calendar
+                  </p>
+                  <div className="bg-purple-50 rounded-lg p-4 border border-purple-200 text-left max-w-sm mx-auto">
+                    <p className="text-xs text-purple-900 font-medium mb-2">How to create scenarios:</p>
+                    <ol className="text-xs text-purple-800 space-y-1 list-decimal list-inside">
+                      <li>Click the "🔮 What-If" button</li>
+                      <li>Create a new scenario</li>
+                      <li>Make changes (drag jobs, etc.)</li>
+                      <li>Return here to overlay it</li>
+                    </ol>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {allScenarios.map(scenario => {
+                    const visible = isScenarioVisible?.(scenario.id) || false;
+                    const isActive = scenario.isActive;
+                    return (
+                      <div
+                        key={scenario.id}
+                        className={`border rounded-lg p-3 transition-all ${
+                          visible ? 'bg-purple-50 border-purple-300' : 'bg-white border-gray-200'
+                        } ${isActive ? 'ring-2 ring-purple-400' : ''}`}
+                      >
+                        <div className="flex items-start gap-2">
+                          {/* Checkbox */}
+                          <input
+                            type="checkbox"
+                            checked={visible}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              onToggleScenarioVisibility?.(scenario.id);
+                            }}
+                            className="mt-1 w-4 h-4 text-purple-600 rounded focus:ring-2 focus:ring-purple-500 cursor-pointer"
+                          />
+
+                          {/* Scenario Info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-semibold text-gray-900">{scenario.name}</span>
+                              {isActive && (
+                                <span className="px-2 py-0.5 text-xs font-medium rounded bg-purple-500 text-white">
+                                  ACTIVE
+                                </span>
+                              )}
+                            </div>
+
+                            {scenario.description && (
+                              <div className="text-sm text-gray-600 mb-2">
+                                {scenario.description}
+                              </div>
+                            )}
+
+                            <div className="flex items-center gap-3 text-xs text-gray-500">
+                              <span title="Changes">
+                                ✏️ {scenario.changes.length} {scenario.changes.length === 1 ? 'change' : 'changes'}
+                              </span>
+                              <span title="Created">
+                                📅 {new Date(scenario.createdAt).toLocaleDateString()}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           )}
         </div>
 

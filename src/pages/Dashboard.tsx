@@ -10,6 +10,7 @@ import WhatIfControl from '../components/WhatIfControl';
 import ShiftConfigModal from '../components/ShiftConfigModal';
 import { useJobFilters } from '../hooks/useJobFilters';
 import { useWhatIfMode } from '../hooks/useWhatIfMode';
+import { useYScenarioFilters } from '../hooks/useYScenarioFilters';
 import { Event } from '../types/event';
 import { KittingJob } from '../types/kitting';
 import { formatDuration } from '../utils/kittingCalculations';
@@ -43,6 +44,9 @@ const Dashboard: React.FC = () => {
 
   // Initialize job filter hook (applies filtering to what-if or production jobs)
   const jobFilters = useJobFilters(whatIf.jobs);
+
+  // Initialize Y scenario filter hook (manages Y overlay visibility)
+  const yFilters = useYScenarioFilters(whatIf.allScenarios);
 
   const [modalState, setModalState] = useState<{
     isOpen: boolean;
@@ -863,9 +867,16 @@ const Dashboard: React.FC = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
                 </svg>
                 🔍 Filters
+                {/* Hidden Jobs Badge (top-right) */}
                 {jobFilters.hiddenJobCount > 0 && (
                   <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
                     {jobFilters.hiddenJobCount}
+                  </span>
+                )}
+                {/* Y Overlays Badge (bottom-right) */}
+                {whatIf.yOverlayJobs.length > 0 && (
+                  <span className="absolute -bottom-2 -right-2 bg-purple-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                    {whatIf.yOverlayJobs.length}
                   </span>
                 )}
               </button>
@@ -950,6 +961,11 @@ const Dashboard: React.FC = () => {
           onJumpToJob={handleJumpToJob}
           isJobVisible={jobFilters.isJobVisible}
           hiddenJobCount={jobFilters.hiddenJobCount}
+          allScenarios={whatIf.allScenarios}
+          visibleScenarios={yFilters.visibleScenarios}
+          onToggleScenarioVisibility={whatIf.toggleYScenarioVisibility}
+          isScenarioVisible={(id) => whatIf.visibleYScenarioIds.has(id)}
+          yOverlayCount={whatIf.yOverlayJobs.length}
         />
 
         <WhatIfControl
