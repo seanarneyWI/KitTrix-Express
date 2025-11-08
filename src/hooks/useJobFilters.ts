@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { KittingJob } from '../types/kitting';
 
 interface JobFilters {
@@ -11,12 +11,19 @@ interface JobFilters {
 const STORAGE_KEY = 'kittrix-job-filters';
 
 export function useJobFilters(jobs: KittingJob[]) {
+  console.log(`🔧 useJobFilters: Hook called with ${jobs.length} jobs`);
+
+  // Track previous job IDs to detect truly new jobs (not just array reference changes)
+  const prevJobIdsRef = useRef<Set<string>>(new Set());
+
   const [filters, setFilters] = useState<JobFilters>(() => {
+    console.log(`🔧 useJobFilters: Initializing state (this should only happen once)`);
     // Load from localStorage on mount
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
+        console.log(`   📦 Loaded from localStorage: ${parsed.visibleJobIds?.length || 0} visible job IDs`);
         return {
           visibleJobIds: new Set(parsed.visibleJobIds || jobs.map(j => j.id)),
           searchQuery: '',
@@ -29,6 +36,7 @@ export function useJobFilters(jobs: KittingJob[]) {
     }
 
     // Default: show all jobs
+    console.log(`   ⚠️ No localStorage found - defaulting to show all ${jobs.length} jobs`);
     return {
       visibleJobIds: new Set(jobs.map(j => j.id)),
       searchQuery: '',
@@ -44,22 +52,42 @@ export function useJobFilters(jobs: KittingJob[]) {
       statusFilters: Array.from(filters.statusFilters),
       densityMode: filters.densityMode
     };
+    console.log(`💾 Saving to localStorage: ${toSave.visibleJobIds.length} visible jobs`);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
   }, [filters]);
 
   // Sync visible job IDs when jobs list changes (for new jobs)
+  // IMPORTANT: Only add jobs that are truly new (not in previous jobs array)
+  // This prevents filter reset when jobs array reference changes (e.g., during what-if modifications)
   useEffect(() => {
     if (jobs.length > 0) {
-      setFilters(prev => {
-        const currentIds = new Set(prev.visibleJobIds);
-        const newJobIds = jobs.filter(j => !currentIds.has(j.id)).map(j => j.id);
+      const currentJobIds = new Set(jobs.map(j => j.id));
 
-        // Add any new jobs to visible set
-        if (newJobIds.length > 0) {
-          newJobIds.forEach(id => currentIds.add(id));
-          return { ...prev, visibleJobIds: currentIds };
+      setFilters(prev => {
+        const currentVisible = new Set(prev.visibleJobIds);
+
+        // Find truly new jobs: jobs that are in current jobs array but weren't in previous jobs array
+        const trulyNewJobIds = jobs
+          .filter(j => !prevJobIdsRef.current.has(j.id))
+          .map(j => j.id);
+
+        // Add only truly new jobs to visible set
+        if (trulyNewJobIds.length > 0) {
+          console.log(`🔍 useJobFilters: Adding ${trulyNewJobIds.length} truly new jobs to visible set`);
+          console.log(`   Previous visible count: ${currentVisible.size}`);
+          trulyNewJobIds.forEach(id => currentVisible.add(id));
+          console.log(`   New visible count: ${currentVisible.size}`);
+
+          // Update the ref for next comparison
+          prevJobIdsRef.current = currentJobIds;
+
+          return { ...prev, visibleJobIds: currentVisible };
         }
 
+        // Update the ref even if no new jobs (to track current state)
+        prevJobIdsRef.current = currentJobIds;
+
+        console.log(`🔍 useJobFilters: Jobs changed but no truly new jobs. Visible count: ${currentVisible.size}/${jobs.length}`);
         return prev;
       });
     }
@@ -91,18 +119,24 @@ export function useJobFilters(jobs: KittingJob[]) {
 
   // Get visible jobs (filtered by visibility checkboxes)
   const visibleJobs = useMemo(() => {
-    return filteredJobs.filter(job => filters.visibleJobIds.has(job.id));
+    const result = filteredJobs.filter(job => filters.visibleJobIds.has(job.id));
+    console.log(`🔍 useJobFilters: visibleJobs calculated - ${result.length}/${filteredJobs.length} jobs visible`);
+    return result;
   }, [filteredJobs, filters.visibleJobIds]);
 
   // Helper functions
   const toggleJobVisibility = (jobId: string) => {
+    console.log(`🔍 toggleJobVisibility called for job: ${jobId}`);
     setFilters(prev => {
       const newVisible = new Set(prev.visibleJobIds);
       if (newVisible.has(jobId)) {
+        console.log(`   Hiding job ${jobId}`);
         newVisible.delete(jobId);
       } else {
+        console.log(`   Showing job ${jobId}`);
         newVisible.add(jobId);
       }
+      console.log(`   New visible count: ${newVisible.size}`);
       return { ...prev, visibleJobIds: newVisible };
     });
   };
@@ -128,6 +162,7 @@ export function useJobFilters(jobs: KittingJob[]) {
   };
 
   const selectAll = () => {
+    console.log(`🔍 selectAll called - showing ${filteredJobs.length} jobs`);
     setFilters(prev => ({
       ...prev,
       visibleJobIds: new Set(filteredJobs.map(j => j.id))
@@ -135,6 +170,7 @@ export function useJobFilters(jobs: KittingJob[]) {
   };
 
   const deselectAll = () => {
+    console.log(`🔍 deselectAll called - hiding all jobs`);
     setFilters(prev => ({
       ...prev,
       visibleJobIds: new Set()
@@ -142,6 +178,8 @@ export function useJobFilters(jobs: KittingJob[]) {
   };
 
   const resetFilters = () => {
+    console.log(`🔍 resetFilters called - resetting to show all ${jobs.length} jobs`);
+    console.trace('resetFilters call stack:');
     setFilters({
       visibleJobIds: new Set(jobs.map(j => j.id)),
       searchQuery: '',

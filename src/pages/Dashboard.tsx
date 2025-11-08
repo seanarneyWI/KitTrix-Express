@@ -38,6 +38,10 @@ const Dashboard: React.FC = () => {
   const [isWhatIfPanelOpen, setIsWhatIfPanelOpen] = useState(false);
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
+  const [delayManagerContext, setDelayManagerContext] = useState<{
+    scenarioId?: string;
+    jobId?: string;
+  } | null>(null);
 
   // Initialize What-If mode hook (applies scenario changes on top of production jobs)
   const whatIf = useWhatIfMode(kittingJobs);
@@ -76,14 +80,25 @@ const Dashboard: React.FC = () => {
       fetchKittingJobs();
     };
 
+    // Handle opening Delay Manager from job card ⏰ button
+    const handleOpenDelayManager = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const { scenarioId, jobId } = customEvent.detail;
+      console.log('⏰ Opening Delay Manager from job card:', { scenarioId, jobId });
+      setDelayManagerContext({ scenarioId, jobId });
+      setIsFilterPanelOpen(true); // Open filter panel which contains DelayManager
+    };
+
     // Listen for custom job update events
     window.addEventListener('jobsUpdated', handleJobUpdate);
     window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener('openDelayManager', handleOpenDelayManager as EventListener);
 
     // Cleanup
     return () => {
       window.removeEventListener('jobsUpdated', handleJobUpdate);
       window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener('openDelayManager', handleOpenDelayManager as EventListener);
     };
   }, []);
 
@@ -274,14 +289,16 @@ const Dashboard: React.FC = () => {
    */
   const kittingJobToEvents = (job: any): Event[] => {
     try {
-      console.log('🔄 Converting job to events (shift-based):', job.jobNumber);
+      // DEBUG: DISABLED - too much logging
+      // console.log('🔄 Converting job to events (shift-based):', job.jobNumber);
 
       // Determine the start date and time for the job
       // Priority: scheduledDate/scheduledStartTime > current date/8:00 AM
       const startDate = job.scheduledDate ? new Date(job.scheduledDate) : new Date();
       const startTimeStr = job.scheduledStartTime || '08:00';
 
-      console.log(`  📅 Job ${job.jobNumber}: scheduledDate=${job.scheduledDate}, startDate=${startDate.toISOString()}, startTime=${startTimeStr}`);
+      // DEBUG: DISABLED - too much logging
+      // console.log(`  📅 Job ${job.jobNumber}: scheduledDate=${job.scheduledDate}, startDate=${startDate.toISOString()}, startTime=${startTimeStr}`);
 
       // Create full start datetime
       const [startHours, startMinutes] = startTimeStr.split(':').map(Number);
@@ -306,7 +323,8 @@ const Dashboard: React.FC = () => {
 
         // If job spans multiple days, create events for each day
         if (startDateStr !== endDateStr) {
-          console.log(`  📊 Multi-day job detected: ${startDateStr} to ${endDateStr}`);
+          // DEBUG: DISABLED - too much logging
+          // console.log(`  📊 Multi-day job detected: ${startDateStr} to ${endDateStr}`);
           const events: Event[] = [];
           let currentDate = new Date(startDate);
           let dayCounter = 0;
@@ -332,13 +350,17 @@ const Dashboard: React.FC = () => {
             if (!isLastDay && endMinutes <= startMinutes) {
               // Overnight shift - use 23:59 as end time for this day
               dayEndTime = '23:59';
-              console.log(`    ⚠️ Overnight shift detected, using 23:59 as end time for display`);
+              // DEBUG: DISABLED - too much logging
+              // console.log(`    ⚠️ Overnight shift detected, using 23:59 as end time for display`);
             }
 
-            console.log(`    Day ${dayCounter + 1}: ${currentDateStr} ${dayStartTime}-${dayEndTime}`);
+            // DEBUG: DISABLED - too much logging
+            // console.log(`    Day ${dayCounter + 1}: ${currentDateStr} ${dayStartTime}-${dayEndTime}`);
 
             events.push({
-              id: `kj-${job.id}-day-${dayCounter}`,
+              id: job.__yScenario
+                ? `y-${job.__yScenario}-${job.id}-day-${dayCounter}` // Unique key for Y overlays
+                : `kj-${job.id}-day-${dayCounter}`, // Standard key for production jobs
               title: `${job.jobNumber} - ${job.description}${events.length > 0 ? ` (Day ${dayCounter + 1})` : ''}`,
               date: currentDateStr,
               startTime: dayStartTime,
@@ -347,21 +369,28 @@ const Dashboard: React.FC = () => {
               color: getKittingJobColor(job.status),
               type: 'kitting-job',
               kittingJob: job,
-              __whatif: job.__whatif // Preserve what-if marker
+              __whatif: job.__whatif, // Preserve what-if marker
+              __yScenario: job.__yScenario, // Preserve Y scenario ID
+              __yScenarioName: job.__yScenarioName, // Preserve Y scenario name
+              __yScenarioDeleted: job.__yScenarioDeleted // Preserve Y scenario deleted flag
             });
 
             currentDate.setDate(currentDate.getDate() + 1);
             dayCounter++;
           }
 
-          console.log(`  ✅ Created ${events.length} day-events for ${job.jobNumber}`);
+          // DEBUG: DISABLED - too much logging
+          // console.log(`  ✅ Created ${events.length} day-events for ${job.jobNumber}`);
           return events;
         }
 
         // Single day job
-        console.log(`  ✅ Single-day job: ${startDateStr} ${startTimeStr}-${endTimeStr}`);
+        // DEBUG: DISABLED - too much logging
+        // console.log(`  ✅ Single-day job: ${startDateStr} ${startTimeStr}-${endTimeStr}`);
         return [{
-          id: `kj-${job.id}`,
+          id: job.__yScenario
+            ? `y-${job.__yScenario}-${job.id}` // Unique key for Y overlays
+            : `kj-${job.id}`, // Standard key for production jobs
           title: `${job.jobNumber} - ${job.description}`,
           date: startDateStr,
           startTime: startTimeStr,
@@ -370,7 +399,10 @@ const Dashboard: React.FC = () => {
           color: getKittingJobColor(job.status),
           type: 'kitting-job',
           kittingJob: job,
-          __whatif: job.__whatif // Preserve what-if marker
+          __whatif: job.__whatif, // Preserve what-if marker
+          __yScenario: job.__yScenario, // Preserve Y scenario ID
+          __yScenarioName: job.__yScenarioName, // Preserve Y scenario name
+          __yScenarioDeleted: job.__yScenarioDeleted // Preserve Y scenario deleted flag
         }];
       }
 
@@ -380,7 +412,9 @@ const Dashboard: React.FC = () => {
       const endTimeStr = `${String(endDate.getHours()).padStart(2, '0')}:${String(endDate.getMinutes()).padStart(2, '0')}`;
 
       return [{
-        id: `kj-${job.id}`,
+        id: job.__yScenario
+          ? `y-${job.__yScenario}-${job.id}` // Unique key for Y overlays
+          : `kj-${job.id}`, // Standard key for production jobs
         title: `${job.jobNumber} - ${job.description}`,
         date: startDate.toISOString().split('T')[0],
         startTime: startTimeStr,
@@ -389,7 +423,10 @@ const Dashboard: React.FC = () => {
         color: getKittingJobColor(job.status),
         type: 'kitting-job',
         kittingJob: job,
-        __whatif: job.__whatif // Preserve what-if marker
+        __whatif: job.__whatif, // Preserve what-if marker
+        __yScenario: job.__yScenario, // Preserve Y scenario ID
+        __yScenarioName: job.__yScenarioName, // Preserve Y scenario name
+        __yScenarioDeleted: job.__yScenarioDeleted // Preserve Y scenario deleted flag
       }];
     } catch (error) {
       console.error('Error converting job to events:', job.jobNumber, error);
@@ -408,15 +445,59 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  // Filter Y overlay jobs using the same filter logic as production jobs
+  const filteredYOverlayJobs = whatIf.yOverlayJobs.filter(job => {
+    // Check if this job's ID is in the visible jobs set
+    const isVisible = jobFilters.isJobVisible(job.id);
+
+    // Check search query match
+    const searchMatch = !jobFilters.searchQuery.trim() ||
+      job.jobNumber.toLowerCase().includes(jobFilters.searchQuery.toLowerCase()) ||
+      job.customerName.toLowerCase().includes(jobFilters.searchQuery.toLowerCase()) ||
+      job.description.toLowerCase().includes(jobFilters.searchQuery.toLowerCase());
+
+    // Check status filter match
+    const statusMatch = jobFilters.isStatusFilterActive(job.status.toUpperCase());
+
+    return isVisible && searchMatch && statusMatch;
+  });
+
+  // DEBUG: DISABLED - too much logging
+  // if (filteredYOverlayJobs.length > 0) {
+  //   console.log(`🔮 DEBUG: Filtered Y overlay jobs (${filteredYOverlayJobs.length}):`,
+  //     filteredYOverlayJobs.map(j => ({
+  //       jobNumber: j.jobNumber,
+  //       __yScenario: j.__yScenario,
+  //       __yScenarioName: j.__yScenarioName
+  //     }))
+  //   );
+  // }
+
+  // DEBUG: DISABLED - too much logging
+  // console.log(`🎯 FILTER STATE: visibleJobs=${jobFilters.visibleJobs.length}/${whatIf.jobs.length} total jobs`);
+  // console.log(`   Hidden count: ${jobFilters.hiddenJobCount}`);
+  // console.log(`   Visible job IDs:`, Array.from(jobFilters.visibleJobs.map(j => j.jobNumber)).join(', '));
+
   // Combine events and kitting jobs for display (use visible jobs from filter)
+  const yOverlayEvents = filteredYOverlayJobs.flatMap(kittingJobToEvents);
+
+  // DEBUG: DISABLED - too much logging
+  // if (yOverlayEvents.length > 0) {
+  //   console.log(`🔮 DEBUG: Y overlay events after conversion (${yOverlayEvents.length}):`,
+  //     yOverlayEvents.map(e => ({
+  //       id: e.id,
+  //       title: e.title,
+  //       __yScenario: e.__yScenario,
+  //       __yScenarioName: e.__yScenarioName
+  //     }))
+  //   );
+  // }
+
   const allCalendarItems = [
     ...events,
     ...jobFilters.visibleJobs.flatMap(kittingJobToEvents),
-    ...whatIf.yOverlayJobs.flatMap(kittingJobToEvents)  // Add Y scenario overlay jobs
+    ...yOverlayEvents  // Add filtered Y scenario overlay jobs
   ];
-
-  // Log all calendar items for debugging
-  console.log(`📋 Total calendar items: ${allCalendarItems.length}`);
   const oct27Items = allCalendarItems.filter(item => item.date === '2025-10-27');
   if (oct27Items.length > 0) {
     console.log(`📍 Items for Oct 27: ${oct27Items.length}`);
@@ -510,6 +591,13 @@ const Dashboard: React.FC = () => {
       day: 'numeric'
     });
 
+    console.log(`
+╔═══════════════════════════════════════════════════════════╗
+║ 🔄 MOVING JOB: ${jobNumber}
+║ Mode: ${whatIf.isWhatIfMode ? '🔮 WHAT-IF MODE' : '🏭 PRODUCTION MODE'}
+║ New Date: ${displayDate} at ${newTime}
+╚═══════════════════════════════════════════════════════════╝`);
+
     // **WHAT-IF MODE**: Track change in scenario instead of updating production
     if (whatIf.isWhatIfMode && whatIf.activeScenario) {
       console.log('🔮 What-If mode: Adding MODIFY change to scenario');
@@ -550,6 +638,7 @@ const Dashboard: React.FC = () => {
     console.log('📅 Production mode: Updating job in database');
 
     // Optimistic update: update UI immediately
+    console.log('🔄 Performing optimistic update...');
     const previousJobs = [...kittingJobs];
     const updatedJobs = kittingJobs.map(job => {
       if (job.id === jobId) {
@@ -561,7 +650,11 @@ const Dashboard: React.FC = () => {
       }
       return job;
     });
+    console.log(`   Previous jobs array: ${previousJobs.length} jobs`);
+    console.log(`   Updated jobs array: ${updatedJobs.length} jobs`);
+    console.log(`   🚨 CALLING setKittingJobs() - this may trigger filter updates`);
     setKittingJobs(updatedJobs);
+    console.log(`   ✅ setKittingJobs() completed`);
 
     try {
       const url = apiUrl(`/api/kitting-jobs?id=${jobId}`);
@@ -589,8 +682,8 @@ const Dashboard: React.FC = () => {
         // Show success toast
         toast.success(`Job ${jobNumber} rescheduled to ${displayDate} at ${newTime}`);
 
-        // Refresh from server to get accurate recalculated data
-        fetchKittingJobs();
+        // NOTE: No need to fetchKittingJobs() here - optimistic update already handled UI
+        // Removing this prevents job filters from being disrupted
       } else {
         const errorText = await response.text();
         console.error('❌ Failed to update job schedule:', response.status, errorText);
@@ -875,9 +968,9 @@ const Dashboard: React.FC = () => {
                   </span>
                 )}
                 {/* Y Overlays Badge (bottom-right) */}
-                {whatIf.yOverlayJobs.length > 0 && (
+                {filteredYOverlayJobs.length > 0 && (
                   <span className="absolute -bottom-2 -right-2 bg-purple-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-                    {whatIf.yOverlayJobs.length}
+                    {filteredYOverlayJobs.length}
                   </span>
                 )}
               </button>
@@ -946,7 +1039,10 @@ const Dashboard: React.FC = () => {
         {/* Job Filter Panel */}
         <JobFilterPanel
           isOpen={isFilterPanelOpen}
-          onClose={() => setIsFilterPanelOpen(false)}
+          onClose={() => {
+            setIsFilterPanelOpen(false);
+            setDelayManagerContext(null); // Clear context when panel closes
+          }}
           filteredJobs={jobFilters.filteredJobs}
           visibleJobs={jobFilters.visibleJobs}
           searchQuery={jobFilters.searchQuery}
@@ -966,8 +1062,9 @@ const Dashboard: React.FC = () => {
           visibleScenarios={yFilters.visibleScenarios}
           onToggleScenarioVisibility={whatIf.toggleYScenarioVisibility}
           isScenarioVisible={(id) => whatIf.visibleYScenarioIds.has(id)}
-          yOverlayCount={whatIf.yOverlayJobs.length}
+          yOverlayCount={filteredYOverlayJobs.length}
           allJobs={kittingJobs}
+          delayManagerContext={delayManagerContext}
         />
 
         <WhatIfControl

@@ -354,6 +354,17 @@ const DraggableEvent: React.FC<{
     }
   };
 
+  // Y Scenario ghost styling (takes precedence over what-if)
+  const isYScenario = !!event.__yScenario;
+  const yScenarioDeleted = event.__yScenarioDeleted;
+
+  // Build Y scenario styling classes
+  const yScenarioClasses = isYScenario
+    ? yScenarioDeleted
+      ? 'border-4 border-dashed border-red-500/80 opacity-40'
+      : 'border-4 border-dashed border-purple-500/80 opacity-40 shadow-lg shadow-purple-500/30'
+    : '';
+
   return (
     <>
       <div
@@ -362,7 +373,7 @@ const DraggableEvent: React.FC<{
         {...attributes}
         className={`text-xs p-1 rounded cursor-pointer ${event.color} text-white hover:opacity-80 transition-opacity ${
           isDragging ? 'opacity-50' : ''
-        }`}
+        } ${yScenarioClasses} relative`}
         style={{
           WebkitTouchCallout: 'none',
           WebkitUserSelect: 'none',
@@ -384,6 +395,13 @@ const DraggableEvent: React.FC<{
         }}
         onContextMenu={handleContextMenu}
       >
+        {/* Y Scenario badge */}
+        {isYScenario && event.__yScenarioName && !yScenarioDeleted && (
+          <div className="absolute -top-1 left-0 text-[10px] bg-purple-700 text-white px-1 rounded-sm font-bold z-10">
+            🔮 {event.__yScenarioName}
+          </div>
+        )}
+
         <div className="flex items-center justify-between gap-1">
           <span className="truncate flex-1">{event.title}</span>
           <span className="whitespace-nowrap flex-shrink-0 text-white/80">{event.startTime}</span>
