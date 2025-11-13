@@ -2008,3 +2008,309 @@ git push
 
 **Files Updated**:
 - `CLAUDE.md` - This comprehensive documentation (November 8, 2025 section)
+
+---
+
+## Y Scenario Shift Independence & Persistence (November 13, 2025)
+
+### Session Overview
+
+**Date**: November 13, 2025
+**Focus**: Fix Y scenario shift scheduling to be independent from global shift activation + Add localStorage persistence
+**Problem**: Y scenarios were limited to globally active shifts, defeating the purpose of "what if" testing
+**Solution**: Added `ignoreActiveStatus` parameter to scheduling + localStorage for Y scenario visibility
+
+### Critical Bug: Y Scenarios Constrained by Global Shift Activation
+
+#### Problem Identified
+
+**User Feedback**: "well thats not going to work for Ys. The primary purpose of doing Ys is to see how various changes in stations or shifts can affect a job"
+
+**Root Cause**: `scheduleJobForwardWithConfig()` at line 409 filtered by both `allowedShiftIds` AND `isActive`:
+
+```typescript
+// BEFORE (src/utils/shiftScheduling.ts:408-410)
+shiftsToUse = allShifts.filter(shift =>
+  shift.isActive && allowedShiftIds.includes(shift.id)  // ❌ filters by isActive
+);
+```
+
+**Impact**:
+- Y scenarios could only test shifts that were globally activated
+- Testing "what if we add 2nd shift?" required globally activating 2nd shift
+- This affected ALL jobs on the calendar, not just the Y scenario
+- Defeated the entire purpose of isolated "what-if" planning
+
+**Example**:
+```
+Production job "2503-RUSH": 2 shifts configured, but only 1 active → uses 1 shift
+Y scenario "2503R": 2 shifts configured, but only 1 active → uses 1 shift
+Result: Both look identical (8 days), can't test shift variations
+```
+
+#### Solution Implemented
+
+**File**: `src/utils/shiftScheduling.ts`
+
+**Added `ignoreActiveStatus` parameter** (line 394):
+```typescript
+export function scheduleJobForwardWithConfig(
+  startTime: Date,
+  durationSeconds: number,
+  allShifts: Shift[],
+  allowedShiftIds: string[] = [],
+  includeWeekends: boolean = false,
+  ignoreActiveStatus: boolean = false  // ✅ New parameter for Y scenarios
+): Date
+```
+
+**Updated shift filtering logic** (lines 408-420):
+```typescript
+if (allowedShiftIds.length > 0) {
+  // Use specific shifts for this job
+  if (ignoreActiveStatus) {
+    // Y scenarios: ignore global isActive status to test any shift configuration
+    shiftsToUse = allShifts.filter(shift =>
+      allowedShiftIds.includes(shift.id)
+    );
+  } else {
+    // Production jobs: respect both allowedShiftIds AND isActive status
+    shiftsToUse = allShifts.filter(shift =>
+      shift.isActive && allowedShiftIds.includes(shift.id)
+    );
+  }
+} else {
+  // Use all active shifts (backward compatible)
+  shiftsToUse = allShifts.filter(shift => shift.isActive);
+}
+```
+
+**File**: `src/pages/Dashboard.tsx` (line 358)
+
+**Pass `true` for Y scenarios, `false` for production**:
+```typescript
+const endDate = scheduleJobForwardWithConfig(
+  startDate,
+  job.expectedJobDuration,
+  allShifts,
+  job.allowedShiftIds || [],
+  job.includeWeekends || false,
+  !!job.__yScenario  // ✅ Ignore isActive for Y scenarios
+);
+```
+
+#### Results
+
+**Y Scenarios Now**:
+- ✅ Use configured shifts **regardless of global activation**
+- ✅ Can test "what if we add 3rd shift?" without affecting production
+- ✅ Independent calendar compression (e.g., Y: 4 days, Production: 8 days)
+- ✅ True isolated "what-if" planning
+
+**Production Jobs**:
+- ✅ Still respect global shift activation (backward compatible)
+- ✅ Unaffected by Y scenario experiments
+- ✅ Maintain safety guardrails
+
+**Console Logs**:
+```
+📅 scheduleJobForwardWithConfig called: { ignoreActiveStatus: true, ... }  // Y scenario
+📅 Shifts selected for scheduling: {shiftsToUseCount: 2, shiftNames: 'First Shift, 2nd Shift', ...}
+
+📅 scheduleJobForwardWithConfig called: { ignoreActiveStatus: false, ... }  // Production
+📅 Shifts selected for scheduling: {shiftsToUseCount: 1, shiftNames: 'First Shift', ...}
+```
+
+### Feature: Y Scenario Visibility Persistence
+
+#### Problem
+
+Y scenario overlay visibility selections were lost on page refresh, requiring users to re-check scenarios every session.
+
+#### Solution Implemented
+
+**File**: `src/hooks/useWhatIfMode.ts`
+
+**Added localStorage key constant** (line 41):
+```typescript
+const Y_SCENARIO_VISIBILITY_KEY = 'kittrix-y-scenario-visibility';
+```
+
+**Load from localStorage on mount** (lines 47-59):
+```typescript
+const [visibleYScenarioIds, setVisibleYScenarioIds] = useState<Set<string>>(() => {
+  // Load from localStorage on mount
+  const stored = localStorage.getItem(Y_SCENARIO_VISIBILITY_KEY);
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored);
+      return new Set(parsed);
+    } catch (e) {
+      console.error('Failed to load Y scenario visibility from localStorage:', e);
+    }
+  }
+  return new Set();
+});
+```
+
+**Save to localStorage on change** (lines 102-105):
+```typescript
+// Save Y scenario visibility to localStorage whenever it changes
+useEffect(() => {
+  const toSave = Array.from(visibleYScenarioIds);
+  localStorage.setItem(Y_SCENARIO_VISIBILITY_KEY, JSON.stringify(toSave));
+}, [visibleYScenarioIds]);
+```
+
+#### How It Works
+
+**Storage Format**:
+```json
+// localStorage['kittrix-y-scenario-visibility']
+["cmhsbwazj0003sxrivpxnlgqj", "cmhso36s50004sx1uh530f34z"]
+```
+
+**User Workflow**:
+1. Check Y scenario "2503R" in Filters → Y Overlays tab
+2. Saved to localStorage immediately
+3. Refresh page or return later
+4. Scenario "2503R" still checked and visible as overlay
+
+**Verification**:
+```javascript
+// Browser console
+localStorage.getItem('kittrix-y-scenario-visibility')
+// Returns: ["cmhsbwazj0003sxrivpxnlgqj"]
+```
+
+### UX Improvement: Calendar View Button Order
+
+#### Problem
+Calendar view buttons were ordered Daily, Weekly, Monthly (zoom in → zoom out)
+
+#### Solution
+Reordered to Monthly, Weekly, Daily (zoom out → zoom in) for better mental model
+
+**File**: `src/pages/Dashboard.tsx` (lines 1125-1154)
+
+**Before**: [Daily] [Weekly] [Monthly]  
+**After**: [Monthly] [Weekly] [Daily]
+
+Matches common patterns (Google Calendar, Outlook) where broader views come first.
+
+### Files Modified
+
+**Modified**:
+- `src/utils/shiftScheduling.ts` (+8 lines) - Added `ignoreActiveStatus` parameter and conditional filtering
+- `src/pages/Dashboard.tsx` (+3 lines) - Pass Y scenario flag to scheduler, reorder calendar buttons
+- `src/hooks/useWhatIfMode.ts` (+18 lines) - localStorage persistence for Y scenario visibility
+
+**Total Changes**: 29 lines across 3 files
+
+### Testing Verification
+
+**Test Scenario**: Job "2503-RUSH" with 2 shifts configured
+
+**Shift Status in Database**:
+- First Shift: ACTIVE ✅
+- 2nd Shift: INACTIVE ❌
+- Third Shift: INACTIVE ❌
+
+**Before Fix**:
+```
+Production "2503-RUSH": 2 shifts configured → 1 active → 8 days
+Y scenario "2503R": 2 shifts configured → 1 active → 8 days
+Result: Identical, can't test variations
+```
+
+**After Fix**:
+```
+Production "2503-RUSH": 2 shifts configured → 1 active → 8 days
+Y scenario "2503R": 2 shifts configured → ignores isActive → 4 days
+Result: Independent, can test "what if we add 2nd shift?"
+```
+
+**Database Verification**:
+```sql
+-- Production job (UNCHANGED)
+SELECT allowed_shift_ids FROM kitting_jobs WHERE "jobNumber" = '2503-RUSH';
+-- Result: {shift_first,shift_second}
+
+-- Y scenario change (ISOLATED)
+SELECT change_data->'allowedShiftIds' FROM scenario_changes 
+WHERE scenario_id = 'cmhsbwazj0003sxrivpxnlgqj';
+-- Result: ["shift_first","shift_second"]
+```
+
+### Development Environment Notes
+
+**SSH Tunnel Management**:
+The SSH tunnel to the production database requires periodic restart. Symptoms of dead tunnel:
+- Backend errors: `Can't reach database server at localhost:5433`
+- Frontend: No jobs loading
+- Database: Connection refused
+
+**Restart tunnel**:
+```bash
+lsof -ti:5433 | xargs kill -9  # Kill old tunnel
+ssh -f -N -L 5433:172.17.0.1:5432 sean@137.184.182.28 \
+  -o ServerAliveInterval=60 -o ServerAliveCountMax=3  # Keep-alive
+```
+
+**Restart dev server** (required after tunnel restart):
+```bash
+npm run dev
+```
+
+### Key Learnings
+
+1. **Global vs Local State**: What seems like a "global" setting (shift activation) must be local for what-if planning
+2. **Parameter Flags Over Complex Logic**: A simple boolean flag is clearer than conditional chains
+3. **Backward Compatibility**: Production behavior unchanged (only Y scenarios use new flag)
+4. **localStorage Patterns**: Initialize from storage in useState, save in useEffect
+5. **User Intent Drives Design**: "The primary purpose of Ys is to test variations" → must be independent
+
+### Production Deployment
+
+**Status**: ⚠️ Not yet deployed to production
+
+**To Deploy**:
+```bash
+# 1. Commit changes
+git add src/utils/shiftScheduling.ts src/pages/Dashboard.tsx src/hooks/useWhatIfMode.ts CLAUDE.md
+git commit -m "Fix Y scenario shift independence and add localStorage persistence
+
+- Add ignoreActiveStatus parameter to scheduling function
+- Y scenarios now ignore global shift activation (test any shifts)
+- Production jobs still respect isActive (safe defaults)
+- Add localStorage persistence for Y scenario visibility
+- Reorder calendar view buttons: Monthly, Weekly, Daily
+
+Fixes issue where Y scenarios couldn't test inactive shifts.
+Enables true isolated what-if planning.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+
+# 2. Push to GitHub
+git push
+
+# 3. Deploy to production server
+ssh sean@137.184.182.28
+cd ~/KitTrix-Express
+git pull
+docker-compose up -d --build
+```
+
+**Browser Cache**: Users must hard-refresh (Cmd+Shift+R) after deployment to load new JavaScript.
+
+### Session Metrics
+
+**Time Investment**: ~90 minutes
+**Lines Added**: 29 lines
+**Files Changed**: 3 files
+**Bugs Fixed**: 1 critical design flaw
+**Features Added**: 1 (localStorage persistence)
+**UX Improvements**: 1 (button reordering)
+
