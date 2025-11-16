@@ -1,0 +1,25 @@
+{
+  "name": "KitTrix Express - Production Scheduling",
+  "short_name": "KitTrix",
+  "description": "Y/Ŷ statistical framework for production scheduling and scenario forecasting",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1e3a8a",
+  "theme_color": "#6b21a8",
+  "orientation": "landscape-primary",
+  "icons": [
+    {
+      "src": "/icons/icon-source.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "categories": ["productivity", "business"],
+  "screenshots": []
+}

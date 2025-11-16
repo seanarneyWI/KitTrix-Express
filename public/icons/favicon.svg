@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a8a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#6b21a8;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="64" height="64" rx="12" fill="url(#bgGrad)"/>
+
+  <!-- Simplified dual lines -->
+  <!-- Y (Production) - Solid blue -->
+  <path d="M 8 48 L 20 38 L 32 42 L 44 32 L 56 28"
+        stroke="#3b82f6"
+        stroke-width="4"
+        stroke-linecap="round"
+        fill="none"/>
+
+  <!-- Ŷ (Scenarios) - Dashed purple -->
+  <path d="M 8 52 L 20 40 L 32 44 L 44 30 L 56 24"
+        stroke="#a855f7"
+        stroke-width="4"
+        stroke-linecap="round"
+        stroke-dasharray="6,4"
+        fill="none"/>
+
+  <!-- Y/Ŷ indicators -->
+  <circle cx="56" cy="28" r="3" fill="#3b82f6"/>
+  <circle cx="56" cy="24" r="3" fill="#a855f7"/>
+</svg>

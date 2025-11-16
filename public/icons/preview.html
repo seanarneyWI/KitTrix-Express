@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KitTrix Icons Preview</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+      color: #fff;
+      padding: 40px;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+      background: linear-gradient(to right, #3b82f6, #a855f7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .subtitle {
+      font-size: 1.2rem;
+      color: #94a3b8;
+      margin-bottom: 3rem;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 2rem;
+      margin-bottom: 3rem;
+    }
+    .icon-card {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 2rem;
+      text-align: center;
+    }
+    .icon-card h3 {
+      margin-bottom: 1rem;
+      color: #a855f7;
+    }
+    .icon-display {
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+      padding: 2rem;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .icon-display img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 8px;
+    }
+    .size-label {
+      font-size: 0.875rem;
+      color: #64748b;
+      margin-top: 0.5rem;
+    }
+    .legend {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 2rem;
+      margin-bottom: 2rem;
+    }
+    .legend h2 {
+      color: #a855f7;
+      margin-bottom: 1rem;
+    }
+    .legend-items {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .legend-swatch {
+      width: 40px;
+      height: 40px;
+      border-radius: 6px;
+      flex-shrink: 0;
+    }
+    .y-line { background: linear-gradient(to right, #3b82f6, #60a5fa); }
+    .yhat-line { background: linear-gradient(to right, #a855f7, #c084fc); }
+    .bg-gradient { background: linear-gradient(135deg, #1e3a8a, #6b21a8); }
+    .code {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.875rem;
+      color: #a855f7;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>KitTrix Express Icons</h1>
+    <p class="subtitle">Y/Ŷ Statistical Framework Icon System</p>
+
+    <div class="legend">
+      <h2>Design Elements</h2>
+      <div class="legend-items">
+        <div class="legend-item">
+          <div class="legend-swatch y-line"></div>
+          <div>
+            <div><strong>Y (Production)</strong></div>
+            <div style="font-size: 0.875rem; color: #94a3b8;">Solid blue line</div>
+          </div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-swatch yhat-line"></div>
+          <div>
+            <div><strong>Ŷ (Scenarios)</strong></div>
+            <div style="font-size: 0.875rem; color: #94a3b8;">Dashed purple line</div>
+          </div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-swatch bg-gradient"></div>
+          <div>
+            <div><strong>Background</strong></div>
+            <div style="font-size: 0.875rem; color: #94a3b8;">Navy → Purple gradient</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="icon-card">
+        <h3>App Icon (High Resolution)</h3>
+        <div class="icon-display">
+          <img src="icon-source.svg" alt="KitTrix App Icon" style="width: 200px;">
+        </div>
+        <div class="size-label">
+          <span class="code">icon-source.svg</span><br>
+          512×512 • Used for PWA, Apple Touch Icon
+        </div>
+        <div style="margin-top: 1rem; text-align: left; font-size: 0.875rem; color: #94a3b8;">
+          ✓ Detailed dual timeline chart<br>
+          ✓ Y and Ŷ labels<br>
+          ✓ 6 data points per line<br>
+          ✓ Grid background
+        </div>
+      </div>
+
+      <div class="icon-card">
+        <h3>Favicon (Browser Tab)</h3>
+        <div class="icon-display">
+          <img src="favicon.svg" alt="KitTrix Favicon" style="width: 64px;">
+        </div>
+        <div class="size-label">
+          <span class="code">favicon.svg</span><br>
+          64×64 • Optimized for small sizes
+        </div>
+        <div style="margin-top: 1rem; text-align: left; font-size: 0.875rem; color: #94a3b8;">
+          ✓ Simplified dual lines<br>
+          ✓ No text (too small)<br>
+          ✓ Indicator dots<br>
+          ✓ Clean & recognizable
+        </div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="icon-card">
+        <h3>Different Sizes Preview</h3>
+        <div style="display: flex; align-items: flex-end; justify-content: center; gap: 1rem; padding: 2rem; background: rgba(0,0,0,0.2); border-radius: 8px;">
+          <div style="text-align: center;">
+            <img src="favicon.svg" style="width: 16px; height: 16px;" alt="16x16">
+            <div style="font-size: 0.75rem; margin-top: 0.5rem; color: #64748b;">16px</div>
+          </div>
+          <div style="text-align: center;">
+            <img src="favicon.svg" style="width: 32px; height: 32px;" alt="32x32">
+            <div style="font-size: 0.75rem; margin-top: 0.5rem; color: #64748b;">32px</div>
+          </div>
+          <div style="text-align: center;">
+            <img src="favicon.svg" style="width: 64px; height: 64px;" alt="64x64">
+            <div style="font-size: 0.75rem; margin-top: 0.5rem; color: #64748b;">64px</div>
+          </div>
+          <div style="text-align: center;">
+            <img src="icon-source.svg" style="width: 128px; height: 128px;" alt="128x128">
+            <div style="font-size: 0.75rem; margin-top: 0.5rem; color: #64748b;">128px</div>
+          </div>
+        </div>
+        <div style="margin-top: 1rem; font-size: 0.875rem; color: #94a3b8;">
+          SVG format scales perfectly to any size
+        </div>
+      </div>
+
+      <div class="icon-card">
+        <h3>Dark Mode Appearance</h3>
+        <div style="padding: 2rem; background: #000; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 2rem;">
+          <img src="favicon.svg" style="width: 64px; height: 64px;" alt="Dark mode">
+          <img src="icon-source.svg" style="width: 120px; height: 120px;" alt="Dark mode large">
+        </div>
+        <div style="margin-top: 1rem; font-size: 0.875rem; color: #94a3b8;">
+          Icons work great on dark backgrounds
+        </div>
+      </div>
+    </div>
+
+    <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 2rem; margin-top: 2rem;">
+      <h2 style="color: #a855f7; margin-bottom: 1rem;">Usage</h2>
+      <div style="font-size: 0.875rem; color: #94a3b8;">
+        <strong>Browser Tab:</strong> <span class="code">favicon.svg</span> automatically appears in browser tabs<br>
+        <strong>Apple iOS:</strong> <span class="code">icon-source.svg</span> used when "Add to Home Screen"<br>
+        <strong>PWA Install:</strong> <span class="code">icon-source.svg</span> shown during app installation<br>
+        <strong>Bookmarks:</strong> <span class="code">favicon.svg</span> appears in bookmark bars
+      </div>
+    </div>
+
+    <div style="text-align: center; margin-top: 3rem; padding: 2rem; opacity: 0.5; font-size: 0.875rem;">
+      Created November 16, 2025 • Y/Ŷ Statistical Framework Design System
+    </div>
+  </div>
+</body>
+</html>
