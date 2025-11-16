@@ -1239,6 +1239,23 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  const handleDeleteFromScenario = async (jobId: string, scenarioId: string) => {
+    console.log('🗑️ handleDeleteFromScenario called with jobId:', jobId, 'scenarioId:', scenarioId);
+
+    try {
+      // Use the whatIf hook's deleteChange method to remove the job from the scenario
+      await whatIf.deleteChange(scenarioId, jobId);
+
+      toast.success('Job removed from scenario');
+
+      // Refresh scenarios to update the overlay
+      await whatIf.fetchScenarios();
+    } catch (error) {
+      console.error('Failed to delete job from scenario:', error);
+      toast.error('Failed to remove job from scenario. Please try again.');
+    }
+  };
+
   const handleJumpToJob = (job: KittingJob) => {
     // Navigate to the job's scheduled date
     if (job.scheduledDate) {
@@ -1425,6 +1442,7 @@ const Dashboard: React.FC = () => {
               onCreateScenarioForJob={handleCreateScenarioForJob}
               onEditProductionDelays={handleEditProductionDelays}
               onCommitYToProduction={handleCommitYToProduction}
+              onDeleteFromScenario={handleDeleteFromScenario}
               onEditJob={handleEditJob}
               onDeleteJob={handleDeleteJob}
               densityMode={jobFilters.densityMode}
@@ -1448,6 +1466,7 @@ const Dashboard: React.FC = () => {
               onCreateScenarioForJob={handleCreateScenarioForJob}
               onEditProductionDelays={handleEditProductionDelays}
               onCommitYToProduction={handleCommitYToProduction}
+              onDeleteFromScenario={handleDeleteFromScenario}
               onEditJob={handleEditJob}
               onDeleteJob={handleDeleteJob}
               densityMode={jobFilters.densityMode}
@@ -1470,6 +1489,7 @@ const Dashboard: React.FC = () => {
               onCreateScenarioForJob={handleCreateScenarioForJob}
               onEditProductionDelays={handleEditProductionDelays}
               onCommitYToProduction={handleCommitYToProduction}
+              onDeleteFromScenario={handleDeleteFromScenario}
               onEditJob={handleEditJob}
               onDeleteJob={handleDeleteJob}
               densityMode={jobFilters.densityMode}
