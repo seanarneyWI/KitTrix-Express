@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { Event, DragData } from '../types/event';
+import { Shift } from '../utils/shiftScheduling';
 import JobContextMenu from './JobContextMenu';
 
 interface DurationBasedEventProps {
@@ -18,6 +19,12 @@ interface DurationBasedEventProps {
   onUnassignJob?: (assignmentId: string) => void;
   onChangeStatus?: (jobId: string, status: string) => void;
   onStartJob?: (jobId: string) => void;
+  onEditStations?: (jobId: string) => void;
+  onEditAllowedShifts?: (jobId: string) => void;
+  onCreateScenarioForJob?: (jobId: string) => void;
+  onEditProductionDelays?: (jobId: string) => void;
+  onCommitYToProduction?: (jobId: string, scenarioId: string) => void;
+  allShifts?: Shift[];
 }
 
 const DurationBasedEvent: React.FC<DurationBasedEventProps> = ({
@@ -34,14 +41,26 @@ const DurationBasedEvent: React.FC<DurationBasedEventProps> = ({
   onUnassignJob,
   onChangeStatus,
   onStartJob,
+  onEditStations,
+  onEditAllowedShifts,
+  onCreateScenarioForJob,
+  onEditProductionDelays,
+  onCommitYToProduction,
+  allShifts = [],
 }) => {
   const [isHovering, setIsHovering] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
-  // Main event draggable
+  // Y Scenario ghost styling (takes precedence over what-if)
+  const isYScenario = !!event.__yScenario;
+  const yScenarioDeleted = event.__yScenarioDeleted;
+
+  // Main event draggable (Y scenarios use special data to route to scenario updates)
   const eventDragData: DragData = {
     type: 'event',
     eventId: event.id,
+    isYScenario: isYScenario,
+    yScenarioId: event.__yScenario,
   };
 
   const {
@@ -80,19 +99,16 @@ const DurationBasedEvent: React.FC<DurationBasedEventProps> = ({
     }
   };
 
-  // Y Scenario ghost styling (takes precedence over what-if)
-  const isYScenario = !!event.__yScenario;
-  const yScenarioDeleted = event.__yScenarioDeleted;
-
-  // Ghost styling for Y scenarios
+  // Enhanced ghost styling for Y scenarios - MORE OBVIOUS
   const yScenarioBorder = isYScenario
     ? yScenarioDeleted
-      ? 'border-2 border-dashed border-red-400/60 opacity-40'
-      : 'border-2 border-dashed border-purple-400/60'
+      ? 'border-4 border-dashed border-red-500/80 opacity-40'
+      : 'border-4 border-dashed border-purple-500/80 shadow-lg shadow-purple-500/30'
     : '';
 
-  const yScenarioOpacity = isYScenario && !yScenarioDeleted ? 'opacity-50' : '';
-  const yScenarioBackdrop = isYScenario && !yScenarioDeleted ? 'backdrop-blur-[2px]' : '';
+  const yScenarioOpacity = isYScenario && !yScenarioDeleted ? 'opacity-40' : '';
+  const yScenarioBackdrop = isYScenario && !yScenarioDeleted ? 'backdrop-blur-sm' : '';
+  const yScenarioPattern = isYScenario && !yScenarioDeleted ? 'bg-gradient-to-br from-purple-300/20 to-transparent' : '';
 
   // What-if visual indicators (only shown if NOT a Y scenario)
   const whatIfBorder = !isYScenario && event.__whatif
@@ -118,11 +134,16 @@ const DurationBasedEvent: React.FC<DurationBasedEventProps> = ({
         {...eventAttributes}
         {...eventListeners}
         style={eventStyle}
-        className={`${event.color} text-white rounded-lg shadow-sm cursor-move transition-all duration-200 overflow-hidden ${whatIfBorder} ${yScenarioBorder} ${yScenarioOpacity} ${yScenarioBackdrop} pointer-events-auto`}
+        className={`${event.color} text-white rounded-lg shadow-sm cursor-move transition-all duration-200 overflow-hidden ${whatIfBorder} ${yScenarioBorder} ${yScenarioOpacity} ${yScenarioBackdrop} ${yScenarioPattern} pointer-events-auto relative`}
         onMouseEnter={() => setIsHovering(true)}
         onMouseLeave={() => setIsHovering(false)}
         onClick={(e) => {
           e.stopPropagation();
+          // Don't allow editing Y scenario overlays - they're virtual
+          if (isYScenario) {
+            console.log('🔮 Y scenario overlay clicked - editing disabled');
+            return;
+          }
           // For kitting jobs, don't open edit modal on click - use right-click context menu instead
           if (event.type !== 'kitting-job') {
             onEdit(event);
@@ -130,10 +151,30 @@ const DurationBasedEvent: React.FC<DurationBasedEventProps> = ({
         }}
         onContextMenu={handleContextMenu}
       >
-      {/* Y Scenario name badge */}
+      {/* Y Scenario name badge - ENHANCED */}
       {isYScenario && event.__yScenarioName && !yScenarioDeleted && (
-        <div className="absolute top-0.5 left-0.5 text-xs bg-purple-600/90 text-white px-1.5 py-0.5 rounded backdrop-blur-sm z-20 font-medium">
-          🔮 {event.__yScenarioName}
+        <div className="absolute top-0.5 left-0.5 right-0.5 text-xs bg-purple-700 text-white px-2 py-1 rounded font-bold z-20 flex items-center justify-between shadow-md">
+          <span className="truncate">🔮 Ŷ: {event.__yScenarioName}</span>
+          {isHovering && height >= 60 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                // Open delay manager for this job
+                window.dispatchEvent(new CustomEvent('openDelayManager', {
+                  detail: {
+                    scenarioId: event.__yScenario,
+                    scenarioName: event.__yScenarioName,
+                    jobId: event.id,
+                    jobTitle: event.title
+                  }
+                }));
+              }}
+              className="ml-2 px-1.5 py-0.5 bg-yellow-500 hover:bg-yellow-400 text-white text-xs rounded flex-shrink-0 transition-colors"
+              title="Add delays to this job"
+            >
+              ⏰
+            </button>
+          )}
         </div>
       )}
 
@@ -220,6 +261,12 @@ const DurationBasedEvent: React.FC<DurationBasedEventProps> = ({
           onUnassignJob={onUnassignJob}
           onChangeStatus={onChangeStatus}
           onStartJob={onStartJob}
+          onEditStations={onEditStations}
+          onEditAllowedShifts={onEditAllowedShifts}
+          onCreateScenarioForJob={onCreateScenarioForJob}
+          onEditProductionDelays={onEditProductionDelays}
+          onCommitYToProduction={onCommitYToProduction}
+          allShifts={allShifts}
         />
       )}
     </>

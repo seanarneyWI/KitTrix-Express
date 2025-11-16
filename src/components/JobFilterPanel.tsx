@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { KittingJob } from '../types/kitting';
 import { formatDuration } from '../utils/kittingCalculations';
-import DelayEditor from './DelayEditor';
+import DelayManager from './DelayManager';
 
 interface Scenario {
   id: string;
@@ -38,6 +38,11 @@ interface JobFilterPanelProps {
   isScenarioVisible?: (scenarioId: string) => boolean;
   yOverlayCount?: number;
   allJobs?: KittingJob[];  // All jobs for delay editor
+  delayManagerContext?: { scenarioId?: string; jobId?: string } | null; // Context from job card button
+  // Scenario CRUD operations
+  onCreateScenario?: (name: string, description?: string, sourceJobId?: string) => Promise<void>;
+  onCommitScenario?: (scenarioId: string) => Promise<void>;
+  onDeleteScenario?: (scenarioId: string) => Promise<void>;
 }
 
 const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
@@ -64,19 +69,46 @@ const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
   onToggleScenarioVisibility,
   isScenarioVisible,
   yOverlayCount = 0,
-  allJobs = []
+  allJobs = [],
+  delayManagerContext = null,
+  onCreateScenario,
+  onCommitScenario,
+  onDeleteScenario
 }) => {
   const [activeTab, setActiveTab] = useState<'jobs' | 'yoverlays'>('jobs');
   const [groupBy, setGroupBy] = useState<'none' | 'job#' | 'customer' | 'status'>('none');
-  const [delayEditorState, setDelayEditorState] = useState<{
+  const [delayManagerState, setDelayManagerState] = useState<{
     isOpen: boolean;
-    scenario: Scenario | null;
-    job: KittingJob | null;
+    defaultScenarioId?: string;
+    defaultJobId?: string;
   }>({
     isOpen: false,
-    scenario: null,
-    job: null
+    defaultScenarioId: undefined,
+    defaultJobId: undefined
   });
+
+  // Scenario modal states
+  const [showCreateScenarioModal, setShowCreateScenarioModal] = useState(false);
+  const [newScenarioName, setNewScenarioName] = useState('');
+  const [newScenarioDescription, setNewScenarioDescription] = useState('');
+  const [selectedBaseJobId, setSelectedBaseJobId] = useState('');
+  const [scenarioToCommit, setScenarioToCommit] = useState<Scenario | null>(null);
+  const [scenarioToDelete, setScenarioToDelete] = useState<Scenario | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [expandedChanges, setExpandedChanges] = useState<Set<string>>(new Set());
+
+  // Auto-open DelayManager when context is provided from job card button
+  useEffect(() => {
+    if (delayManagerContext?.scenarioId || delayManagerContext?.jobId) {
+      console.log('⏰ Opening Delay Manager from context:', delayManagerContext);
+      setDelayManagerState({
+        isOpen: true,
+        defaultScenarioId: delayManagerContext.scenarioId,
+        defaultJobId: delayManagerContext.jobId
+      });
+      setActiveTab('yoverlays'); // Switch to Y Overlays tab
+    }
+  }, [delayManagerContext]);
 
   // Close on Escape key
   useEffect(() => {
@@ -149,6 +181,64 @@ const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
     return start;
   };
 
+  // Scenario CRUD handlers
+  const handleCreateScenario = async () => {
+    if (!newScenarioName.trim() || !onCreateScenario) return;
+
+    setIsCreating(true);
+    try {
+      await onCreateScenario(
+        newScenarioName.trim(),
+        newScenarioDescription.trim() || undefined,
+        selectedBaseJobId || undefined
+      );
+      // Reset form
+      setNewScenarioName('');
+      setNewScenarioDescription('');
+      setSelectedBaseJobId('');
+      setShowCreateScenarioModal(false);
+    } catch (error) {
+      console.error('Failed to create scenario:', error);
+      alert('Failed to create scenario. Please try again.');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleCommitScenario = async (scenario: Scenario) => {
+    if (!onCommitScenario) return;
+
+    try {
+      await onCommitScenario(scenario.id);
+      setScenarioToCommit(null);
+    } catch (error) {
+      console.error('Failed to commit scenario:', error);
+      alert('Failed to commit scenario: ' + (error as Error).message);
+    }
+  };
+
+  const handleDeleteScenario = async (scenario: Scenario) => {
+    if (!onDeleteScenario) return;
+
+    try {
+      await onDeleteScenario(scenario.id);
+      setScenarioToDelete(null);
+    } catch (error) {
+      console.error('Failed to delete scenario:', error);
+      alert('Failed to delete scenario. Please try again.');
+    }
+  };
+
+  const toggleChangeExpansion = (scenarioId: string) => {
+    const newExpanded = new Set(expandedChanges);
+    if (newExpanded.has(scenarioId)) {
+      newExpanded.delete(scenarioId);
+    } else {
+      newExpanded.add(scenarioId);
+    }
+    setExpandedChanges(newExpanded);
+  };
+
   return (
     <>
       {/* Backdrop overlay */}
@@ -190,7 +280,7 @@ const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
                   : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-300'
               }`}
             >
-              📋 Jobs
+              📋 Y (Production)
             </button>
             <button
               onClick={() => setActiveTab('yoverlays')}
@@ -200,7 +290,7 @@ const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
                   : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-300'
               }`}
             >
-              🔮 Y Overlays
+              🔮 Ŷ (Scenarios)
             </button>
           </div>
 
@@ -375,9 +465,18 @@ const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
           ) : (
             /* Y Overlays Tab Content */
             <>
-              <div className="text-xs text-gray-500 mb-3">
-                {visibleScenarios.length} of {allScenarios.length} scenarios visible
-                {yOverlayCount > 0 && <span className="text-purple-600 font-medium"> ({yOverlayCount} active overlays)</span>}
+              <div className="flex justify-between items-center mb-3">
+                <div className="text-xs text-gray-500">
+                  {visibleScenarios.length} of {allScenarios.length} scenarios visible
+                  {yOverlayCount > 0 && <span className="text-purple-600 font-medium"> ({yOverlayCount} active overlays)</span>}
+                </div>
+                <button
+                  onClick={() => setShowCreateScenarioModal(true)}
+                  className="px-3 py-1.5 text-sm font-medium text-white bg-purple-500 hover:bg-purple-600 rounded-lg transition-colors shadow-sm flex items-center gap-1"
+                >
+                  <span>+</span>
+                  <span>New Scenario</span>
+                </button>
               </div>
 
               {allScenarios.length === 0 ? (
@@ -387,15 +486,12 @@ const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
                   <p className="text-sm text-gray-600 mb-6">
                     Create what-if scenarios to overlay and compare on the calendar
                   </p>
-                  <div className="bg-purple-50 rounded-lg p-4 border border-purple-200 text-left max-w-sm mx-auto">
-                    <p className="text-xs text-purple-900 font-medium mb-2">How to create scenarios:</p>
-                    <ol className="text-xs text-purple-800 space-y-1 list-decimal list-inside">
-                      <li>Click the "🔮 What-If" button</li>
-                      <li>Create a new scenario</li>
-                      <li>Make changes (drag jobs, etc.)</li>
-                      <li>Return here to overlay it</li>
-                    </ol>
-                  </div>
+                  <button
+                    onClick={() => setShowCreateScenarioModal(true)}
+                    className="px-4 py-2 bg-purple-500 text-white rounded-lg font-medium hover:bg-purple-600 transition-colors text-sm"
+                  >
+                    + Create First Scenario
+                  </button>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -423,6 +519,7 @@ const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
 
                           {/* Scenario Info */}
                           <div className="flex-1 min-w-0">
+                            {/* Header */}
                             <div className="flex items-center justify-between gap-2 mb-1">
                               <div className="flex items-center gap-2">
                                 <span className="font-semibold text-gray-900">{scenario.name}</span>
@@ -432,28 +529,6 @@ const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
                                   </span>
                                 )}
                               </div>
-                              {/* Manage Delays Button */}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  // For now, just pick the first job from allJobs as a simple implementation
-                                  // In production, you'd show a job selector
-                                  if (allJobs.length > 0) {
-                                    setDelayEditorState({
-                                      isOpen: true,
-                                      scenario,
-                                      job: allJobs[0]
-                                    });
-                                  } else {
-                                    alert('No jobs available. Create a job first.');
-                                  }
-                                }}
-                                className="px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200 transition-colors flex items-center gap-1"
-                                title="Manage delays for this scenario"
-                              >
-                                <span>⚙️</span>
-                                <span>Delays</span>
-                              </button>
                             </div>
 
                             {scenario.description && (
@@ -462,13 +537,102 @@ const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
                               </div>
                             )}
 
-                            <div className="flex items-center gap-3 text-xs text-gray-500">
-                              <span title="Changes">
-                                ✏️ {scenario.changes.length} {scenario.changes.length === 1 ? 'change' : 'changes'}
-                              </span>
+                            {/* Metadata */}
+                            <div className="flex items-center gap-3 text-xs text-gray-500 mb-2">
+                              <button
+                                onClick={() => toggleChangeExpansion(scenario.id)}
+                                className="hover:text-purple-600 transition-colors"
+                                title={expandedChanges.has(scenario.id) ? "Collapse changes" : "Expand changes"}
+                              >
+                                {expandedChanges.has(scenario.id) ? '▼' : '▶'} {scenario.changes.length} {scenario.changes.length === 1 ? 'change' : 'changes'}
+                              </button>
                               <span title="Created">
                                 📅 {new Date(scenario.createdAt).toLocaleDateString()}
                               </span>
+                            </div>
+
+                            {/* Expandable Change List */}
+                            {expandedChanges.has(scenario.id) && scenario.changes.length > 0 && (
+                              <div className="mt-2 mb-2 space-y-1 pl-2 border-l-2 border-purple-200">
+                                {scenario.changes.slice(0, 5).map((change: any, idx: number) => {
+                                  const jobNumber = change.changeData?.jobNumber || change.jobId || 'Unknown';
+                                  const operation = change.operation;
+                                  const desc = operation === 'MODIFY'
+                                    ? `${jobNumber} → ${change.changeData?.scheduledDate ? new Date(change.changeData.scheduledDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'rescheduled'}`
+                                    : operation === 'ADD'
+                                    ? `Add ${jobNumber}`
+                                    : `Remove ${jobNumber}`;
+
+                                  return (
+                                    <div key={idx} className="text-xs text-gray-600 flex items-center gap-1">
+                                      <span className={
+                                        operation === 'ADD' ? 'text-green-600' :
+                                        operation === 'MODIFY' ? 'text-yellow-600' :
+                                        'text-red-600'
+                                      }>
+                                        {operation === 'ADD' ? '➕' : operation === 'MODIFY' ? '✏️' : '🗑️'}
+                                      </span>
+                                      <span>{desc}</span>
+                                    </div>
+                                  );
+                                })}
+                                {scenario.changes.length > 5 && (
+                                  <div className="text-xs text-gray-400 italic">
+                                    +{scenario.changes.length - 5} more...
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Action Buttons */}
+                            <div className="flex gap-2 mt-2">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDelayManagerState({
+                                    isOpen: true,
+                                    defaultScenarioId: scenario.id
+                                  });
+                                }}
+                                className="px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200 transition-colors flex items-center gap-1"
+                                title="Manage delays"
+                              >
+                                ⏰ Delays
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  // Open edit scenario modal
+                                  setNewScenarioName(scenario.name);
+                                  setNewScenarioDescription(scenario.description || '');
+                                  setShowCreateScenarioModal(true);
+                                  // TODO: Add edit mode state to differentiate create vs edit
+                                }}
+                                className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded hover:bg-blue-200 transition-colors flex items-center gap-1"
+                                title="Edit scenario"
+                              >
+                                ✏️ Edit
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setScenarioToCommit(scenario);
+                                }}
+                                className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded hover:bg-green-200 transition-colors flex items-center gap-1"
+                                title="Commit to production"
+                              >
+                                ✅ Commit
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setScenarioToDelete(scenario);
+                                }}
+                                className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded hover:bg-red-200 transition-colors flex items-center gap-1"
+                                title="Delete scenario"
+                              >
+                                🗑️ Delete
+                              </button>
                             </div>
                           </div>
                         </div>
@@ -502,20 +666,213 @@ const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
         </div>
       </div>
 
-      {/* Delay Editor Modal */}
-      {delayEditorState.isOpen && delayEditorState.scenario && delayEditorState.job && (
-        <DelayEditor
-          isOpen={delayEditorState.isOpen}
-          onClose={() => setDelayEditorState({ isOpen: false, scenario: null, job: null })}
-          scenarioId={delayEditorState.scenario.id}
-          scenarioName={delayEditorState.scenario.name}
-          job={delayEditorState.job}
-          onDelaysChanged={() => {
-            // Optionally refresh data or notify parent
-            console.log('⏰ Delays changed for scenario', delayEditorState.scenario?.name);
-          }}
-        />
+      {/* Create Scenario Modal */}
+      {showCreateScenarioModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-[60] flex items-center justify-center">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-96 max-w-[90vw]">
+            <h3 className="text-xl font-bold mb-4">Create New Scenario</h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Base Job (Optional)
+                </label>
+                <select
+                  value={selectedBaseJobId}
+                  onChange={(e) => setSelectedBaseJobId(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none bg-white"
+                >
+                  <option value="">No job (blank scenario)</option>
+                  {allJobs.map(job => (
+                    <option key={job.id} value={job.id}>
+                      {job.jobNumber} - {job.customerName}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Select a job to start with a copy of its current schedule
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Scenario Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newScenarioName}
+                  onChange={(e) => setNewScenarioName(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
+                  placeholder="e.g., Material Delay - 2 weeks"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newScenarioName.trim()) {
+                      handleCreateScenario();
+                    }
+                  }}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Description
+                </label>
+                <textarea
+                  value={newScenarioDescription}
+                  onChange={(e) => setNewScenarioDescription(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none resize-none"
+                  rows={3}
+                  placeholder="What are you testing in this scenario?"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={handleCreateScenario}
+                disabled={!newScenarioName.trim() || isCreating}
+                className="flex-1 py-2 bg-purple-500 text-white rounded-lg font-medium hover:bg-purple-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isCreating ? '⏳ Creating...' : 'Create'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowCreateScenarioModal(false);
+                  setNewScenarioName('');
+                  setNewScenarioDescription('');
+                  setSelectedBaseJobId('');
+                }}
+                disabled={isCreating}
+                className="flex-1 py-2 bg-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
+
+      {/* Commit Scenario Modal */}
+      {scenarioToCommit && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-[60] flex items-center justify-center">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-96 max-w-[90vw]">
+            <h3 className="text-xl font-bold mb-4">Commit Scenario to Production</h3>
+
+            <div className="space-y-3 mb-6">
+              <div>
+                <span className="font-semibold text-gray-900">{scenarioToCommit.name}</span>
+                {scenarioToCommit.description && (
+                  <p className="text-sm text-gray-600 mt-1">{scenarioToCommit.description}</p>
+                )}
+              </div>
+
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                <p className="text-sm text-yellow-900 font-medium mb-1">
+                  ⚠️ This will permanently apply {scenarioToCommit.changes.length} {scenarioToCommit.changes.length === 1 ? 'change' : 'changes'} to production
+                </p>
+                <p className="text-xs text-yellow-800">
+                  This action cannot be undone. The scenario will be deleted after committing.
+                </p>
+              </div>
+
+              {/* Change preview */}
+              {scenarioToCommit.changes.length > 0 && (
+                <div className="max-h-48 overflow-y-auto space-y-1 border rounded p-2">
+                  {scenarioToCommit.changes.slice(0, 10).map((change: any, idx: number) => {
+                    const jobNumber = change.changeData?.jobNumber || change.jobId || 'Unknown';
+                    const operation = change.operation;
+                    return (
+                      <div key={idx} className="text-xs text-gray-600 flex items-center gap-1">
+                        <span className={
+                          operation === 'ADD' ? 'text-green-600' :
+                          operation === 'MODIFY' ? 'text-yellow-600' :
+                          'text-red-600'
+                        }>
+                          {operation === 'ADD' ? '➕' : operation === 'MODIFY' ? '✏️' : '🗑️'}
+                        </span>
+                        <span>{operation} {jobNumber}</span>
+                      </div>
+                    );
+                  })}
+                  {scenarioToCommit.changes.length > 10 && (
+                    <div className="text-xs text-gray-400 italic">
+                      +{scenarioToCommit.changes.length - 10} more...
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleCommitScenario(scenarioToCommit)}
+                className="flex-1 py-2 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 transition-colors"
+              >
+                ✅ Commit to Production
+              </button>
+              <button
+                onClick={() => setScenarioToCommit(null)}
+                className="flex-1 py-2 bg-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-400 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Scenario Confirmation */}
+      {scenarioToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-[60] flex items-center justify-center">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-96 max-w-[90vw]">
+            <h3 className="text-xl font-bold mb-4">Delete Scenario</h3>
+
+            <div className="space-y-3 mb-6">
+              <p className="text-gray-800">
+                Are you sure you want to delete <span className="font-semibold">"{scenarioToDelete.name}"</span>?
+              </p>
+
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-sm text-red-900 font-medium mb-1">
+                  ⚠️ This will permanently delete this scenario and all {scenarioToDelete.changes.length} {scenarioToDelete.changes.length === 1 ? 'change' : 'changes'}
+                </p>
+                <p className="text-xs text-red-800">
+                  This action cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleDeleteScenario(scenarioToDelete)}
+                className="flex-1 py-2 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition-colors"
+              >
+                🗑️ Delete Scenario
+              </button>
+              <button
+                onClick={() => setScenarioToDelete(null)}
+                className="flex-1 py-2 bg-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-400 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delay Manager Modal */}
+      <DelayManager
+        isOpen={delayManagerState.isOpen}
+        onClose={() => setDelayManagerState({ isOpen: false, defaultScenarioId: undefined, defaultJobId: undefined })}
+        allScenarios={allScenarios}
+        allJobs={allJobs}
+        defaultScenarioId={delayManagerState.defaultScenarioId}
+        defaultJobId={delayManagerState.defaultJobId}
+        onDelaysChanged={() => {
+          console.log('⏰ Delays changed, refreshing scenarios...');
+          // The parent component will handle refreshing scenario data
+        }}
+      />
     </>
   );
 };

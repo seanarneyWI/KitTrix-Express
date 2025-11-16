@@ -26,17 +26,28 @@ interface ScenarioChange {
 /**
  * Custom hook for managing What-If scenario planning mode
  *
+ * STATISTICAL FRAMEWORK:
+ * - Y (Production) = Actual production schedule (reality/ground truth)
+ * - Ŷ (Scenarios) = Predicted/forecasted schedule alternatives
+ * - Y - Ŷ = Residuals (differences between predicted and actual outcomes)
+ *
+ * This hook implements the Ŷ prediction layer that overlays on top of Y reality.
+ * Multiple scenarios (multiple Ŷ values) can be compared to find optimal predictions.
+ * See Y_YHAT_ARCHITECTURE.md for comprehensive statistical model documentation.
+ *
  * Features:
- * - Toggle between Production and What-If modes
- * - Create and manage scenarios
+ * - Toggle between Production (Y) and What-If (Ŷ) modes
+ * - Create and manage scenarios (Ŷ predictions)
  * - Track changes (ADD, MODIFY, DELETE operations)
  * - Multi-window synchronization via BroadcastChannel
- * - Commit scenarios to production
+ * - Commit scenarios to production (Ŷ → Y)
  * - Discard scenarios without applying
+ * - Y Overlays: Display multiple Ŷ predictions as purple ghosts
  *
  * Usage:
- * const whatIf = useWhatIfMode(productionJobs);
- * const jobs = whatIf.jobs; // Returns production or what-if jobs based on mode
+ * const whatIf = useWhatIfMode(productionJobs); // productionJobs = Y
+ * const jobs = whatIf.jobs; // Returns Y or Ŷ based on mode
+ * const yHatOverlays = whatIf.yOverlayJobs; // Returns Ŷ predictions for visualization
  */
 const Y_SCENARIO_VISIBILITY_KEY = 'kittrix-y-scenario-visibility';
 
@@ -148,7 +159,7 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
         const delays = await fetchProductionDelays(job.id);
         if (delays.length > 0) {
           delaysMap.set(job.id, delays);
-          console.log(`  ⏰ Fetched ${delays.length} production delays for job ${job.jobNumber}`);
+          // console.log(`  ⏰ Fetched ${delays.length} production delays for job ${job.jobNumber}`);
         }
       }
       setProductionDelays(delaysMap);
@@ -219,7 +230,7 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
   // Fetch production delays when jobs change
   useEffect(() => {
     if (productionJobs.length > 0) {
-      console.log('🔮 Fetching production delays for all jobs');
+      // console.log('🔮 Fetching production delays for all jobs');
       fetchAllProductionDelays(productionJobs);
     }
   }, [productionJobs]);
@@ -234,7 +245,7 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
 
     // In what-if mode, apply scenario changes first
     if (activeScenario && mode === 'whatif') {
-      console.log(`🔮 Applying ${activeScenario.changes.length} changes to ${productionJobs.length} production jobs`);
+      // console.log(`🔮 Applying ${activeScenario.changes.length} changes to ${productionJobs.length} production jobs`);
 
       let modifiedJobs = [...productionJobs];
 
@@ -246,7 +257,7 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
               ...change.changeData,
               __whatif: 'added'  // Mark for visual indicator
             } as any);
-            console.log(`  ➕ Added job: ${change.changeData.jobNumber || 'New Job'}`);
+            // console.log(`  ➕ Added job: ${change.changeData.jobNumber || 'New Job'}`);
             break;
 
           case 'MODIFY':
@@ -262,16 +273,16 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
                     modifiedJob,
                     change.changeData.stationCount
                   );
-                  console.log(`  🔧 Recalculated duration for station count change`);
+                  // console.log(`  🔧 Recalculated duration for station count change`);
                 } else if (change.changeData.allowedShiftIds) {
-                  console.log(`  🔧 Shift change detected - calendar will auto-adjust`);
+                  // console.log(`  🔧 Shift change detected - calendar will auto-adjust`);
                 }
 
                 return modifiedJob;
               }
               return job;
             });
-            console.log(`  ✏️ Modified job: ${change.jobId}`);
+            // console.log(`  ✏️ Modified job: ${change.jobId}`);
             break;
 
           case 'DELETE':
@@ -291,11 +302,11 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
 
     // Apply production delays to ALL jobs (in both production and what-if mode)
     if (productionDelays.size > 0) {
-      console.log(`⏰ Applying production delays to ${jobs.length} jobs`);
+      // console.log(`⏰ Applying production delays to ${jobs.length} jobs`);
       jobs = jobs.map(job => {
         const jobDelays = productionDelays.get(job.id);
         if (jobDelays && jobDelays.length > 0) {
-          console.log(`  ⏰ Applying ${jobDelays.length} production delays to job ${job.jobNumber}`);
+          // console.log(`  ⏰ Applying ${jobDelays.length} production delays to job ${job.jobNumber}`);
           return applyDelaysToJob(job, jobDelays);
         }
         return job;
@@ -604,7 +615,22 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
   };
 
   /**
-   * Get jobs from visible Y scenarios for overlay rendering
+   * Generate Ŷ (Y-hat) predictions from visible scenarios
+   *
+   * This useMemo transforms Y (production reality) into multiple Ŷ (predicted) alternatives
+   * by applying scenario changes (ADD/MODIFY/DELETE operations) and delay injections.
+   *
+   * Process:
+   * 1. Start with Y (productionJobs) as baseline
+   * 2. Apply scenario changes to create Ŷ predictions
+   * 3. Inject delays to model disruptions (equipment downtime, meetings, etc.)
+   * 4. Tag each job with __yScenario and __yScenarioName for visual rendering
+   *
+   * Each visible scenario produces a separate Ŷ prediction layer displayed as purple ghost
+   * overlays on the calendar. Multiple Ŷ values can be compared simultaneously.
+   *
+   * Future: When jobs execute, actual outcomes (Y) will be compared to these predictions (Ŷ)
+   * to calculate residuals (Y - Ŷ) for statistical analysis and model improvement.
    */
   const yOverlayJobs = useMemo(() => {
     if (visibleYScenarioIds.size === 0) {
@@ -612,7 +638,7 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
     }
 
     const visibleScenarios = allScenarios.filter(s => visibleYScenarioIds.has(s.id));
-    console.log(`🔮 Computing Y overlay jobs from ${visibleScenarios.length} visible scenarios`);
+    // console.log(`🔮 Computing Y overlay jobs from ${visibleScenarios.length} visible scenarios`);
 
     const overlayJobs: any[] = [];
 
@@ -643,11 +669,25 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
                 // Recalculate duration ONLY if station count changed
                 // Shift changes don't affect work duration, only calendar rendering
                 if (change.changeData.stationCount !== undefined) {
+                  const originalStationCount = job.stationCount || 1;
+                  console.log(`  🔧 Y scenario ${scenario.name}: Recalculating for station change ${originalStationCount} → ${change.changeData.stationCount}`);
+
+                  // Use the same recalculateJobDuration function that production jobs use
+                  // This ensures consistent duration calculation logic
                   modifiedJob = recalculateJobDuration(
-                    modifiedJob,
+                    job,  // Pass ORIGINAL job (before changeData applied)
                     change.changeData.stationCount
                   );
-                  console.log(`  🔧 Y scenario: Recalculated duration for station count change`);
+
+                  // Re-apply Y scenario markers that recalculateJobDuration doesn't know about
+                  modifiedJob.__yScenario = scenario.id;
+                  modifiedJob.__yScenarioName = scenario.name;
+
+                  // Re-apply any other changes from changeData (except stationCount which was already applied)
+                  const { stationCount, ...otherChanges } = change.changeData;
+                  modifiedJob = { ...modifiedJob, ...otherChanges };
+
+                  console.log(`  ✅ Y scenario ${scenario.name}: Duration recalculated: ${job.expectedJobDuration}s → ${modifiedJob.expectedJobDuration}s`);
                 } else if (change.changeData.allowedShiftIds) {
                   console.log(`  🔧 Y scenario: Shift change detected - calendar will auto-adjust`);
                 }
@@ -714,7 +754,7 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
       overlayJobs.push(...scenarioJobs);
     });
 
-    console.log(`🔮 Generated ${overlayJobs.length} Y overlay jobs`);
+    // console.log(`🔮 Generated ${overlayJobs.length} Y overlay jobs`);
     return overlayJobs;
   }, [productionJobs, allScenarios, visibleYScenarioIds, scenarioDelays, productionDelays]);
 
