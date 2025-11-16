@@ -6,7 +6,6 @@ import DailyCalendar from '../components/DailyCalendar';
 import EventModal from '../components/EventModal';
 import FloatingActionButton from '../components/FloatingActionButton';
 import JobFilterPanel from '../components/JobFilterPanel';
-import WhatIfControl from '../components/WhatIfControl';
 import ShiftConfigModal from '../components/ShiftConfigModal';
 import StationEditor from '../components/StationEditor';
 import AllowedShiftsEditor from '../components/AllowedShiftsEditor';
@@ -38,7 +37,6 @@ const Dashboard: React.FC = () => {
   const [activeShifts, setActiveShifts] = useState<Shift[]>([]);
   const [allShifts, setAllShifts] = useState<Shift[]>([]);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
-  const [isWhatIfPanelOpen, setIsWhatIfPanelOpen] = useState(false);
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
   const [delayManagerContext, setDelayManagerContext] = useState<{
@@ -102,7 +100,7 @@ const Dashboard: React.FC = () => {
 
     // Auto-refresh when window gains focus (when returning from job creation)
     const handleWindowFocus = () => {
-      console.log('Window focused - refreshing jobs...');
+      // console.log('Window focused - refreshing jobs...');
       fetchKittingJobs();
     };
 
@@ -234,12 +232,11 @@ const Dashboard: React.FC = () => {
 
   const fetchKittingJobs = async () => {
     try {
-      console.log('Fetching kitting jobs...');
       const response = await fetch(apiUrl('/api/kitting-jobs'));
       if (response.ok) {
         const data = await response.json();
-        console.log('Fetched kitting jobs:', data.length || 0);
         setKittingJobs(data || []);
+        return data;
       } else {
         console.error('Failed to fetch kitting jobs - response not ok:', response.status);
         // Mock data for development
@@ -332,20 +329,7 @@ const Dashboard: React.FC = () => {
 
       // Use shift-based forward scheduling if shifts are available
       if (allShifts.length > 0) {
-        // Debug Y scenario shift changes
-        if (job.__yScenario) {
-          const shiftNames = (job.allowedShiftIds || []).map(id => {
-            const shift = allShifts.find(s => s.id === id);
-            return shift?.name || id;
-          });
-          console.log(`🔮 Y scenario job ${job.jobNumber} shifts:`, {
-            shiftCount: (job.allowedShiftIds || []).length,
-            shiftNames: shiftNames.join(', '),
-            allowedShiftIds: job.allowedShiftIds,
-            expectedJobDuration: job.expectedJobDuration,
-            scenarioName: job.__yScenarioName
-          });
-        }
+        // Shift rendering (debug disabled)
 
         // Use per-job configuration if available, otherwise fall back to global active shifts
         // Y scenarios should ignore global shift activation to allow testing any config
@@ -355,7 +339,8 @@ const Dashboard: React.FC = () => {
           allShifts,
           job.allowedShiftIds || [],
           job.includeWeekends || false,
-          !!job.__yScenario  // Ignore isActive for Y scenarios
+          !!job.__yScenario,  // Ignore isActive for Y scenarios
+          job.jobNumber  // Pass job number for debugging
         );
 
         // For now, create a single event spanning from start to end
@@ -377,13 +362,18 @@ const Dashboard: React.FC = () => {
             const isLastDay = currentDateStr === endDateStr;
             const isFirstDay = dayCounter === 0;
 
+            // Get the job's allowed shifts (or fall back to active shifts for compatibility)
+            const jobShifts = (job.allowedShiftIds || []).length > 0
+              ? allShifts.filter(s => job.allowedShiftIds.includes(s.id))
+              : activeShifts;
+
             const dayStartTime = isFirstDay
               ? startTimeStr
-              : activeShifts[0]?.startTime || '08:00';
+              : jobShifts[0]?.startTime || '08:00';
 
             let dayEndTime = isLastDay
               ? endTimeStr
-              : activeShifts[activeShifts.length - 1]?.endTime || '17:00';
+              : jobShifts[jobShifts.length - 1]?.endTime || '17:00';
 
             // Handle overnight shifts: if end time is before start time, it means the shift
             // ends the next day. For calendar display, cap at 23:59 for intermediate days.
@@ -408,6 +398,8 @@ const Dashboard: React.FC = () => {
             events.push({
               id: job.__yScenario
                 ? `y-${job.__yScenario}-${job.id}-day-${dayCounter}` // Unique key for Y overlays
+                : job.__whatif
+                ? `whatif-${job.id}-day-${dayCounter}` // Unique key for active what-if scenario
                 : `kj-${job.id}-day-${dayCounter}`, // Standard key for production jobs
               title: `${job.jobNumber} - ${job.description}${events.length > 0 ? ` (Day ${dayCounter + 1})` : ''}`,
               date: currentDateStr,
@@ -442,6 +434,8 @@ const Dashboard: React.FC = () => {
         return [{
           id: job.__yScenario
             ? `y-${job.__yScenario}-${job.id}` // Unique key for Y overlays
+            : job.__whatif
+            ? `whatif-${job.id}` // Unique key for active what-if scenario
             : `kj-${job.id}`, // Standard key for production jobs
           title: `${job.jobNumber} - ${job.description}`,
           date: startDateStr,
@@ -550,17 +544,18 @@ const Dashboard: React.FC = () => {
   //   );
   // }
 
-  // Use what-if modified jobs when in active what-if mode, otherwise use pure production jobs
-  // ALWAYS apply job visibility filters regardless of mode
-  const productionEvents = (whatIf.isWhatIfMode
-    ? whatIf.jobs.filter(job => jobFilters.visibleJobIds.has(job.id))
-    : jobFilters.visibleJobs
-  ).flatMap(kittingJobToEvents);
+  // ALWAYS use pure production jobs for the base calendar
+  // Y overlays render as separate ghost overlays on TOP of production
+  // They should NEVER modify the production job display
+  const productionEvents = jobFilters.visibleJobs.flatMap(kittingJobToEvents);
+
+  // NOTE: We removed the "active scenario" concept since WhatIfControl panel was removed
+  // Scenarios are now ONLY shown as Y overlays (purple ghosts), never as solid replacements
 
   const allCalendarItems = [
     ...events,
-    ...productionEvents,
-    ...yOverlayEvents  // Add filtered Y scenario overlay jobs
+    ...productionEvents,          // Always show production jobs
+    ...yOverlayEvents             // Y scenario overlays (purple ghosts)
   ];
   const oct27Items = allCalendarItems.filter(item => item.date === '2025-10-27');
   if (oct27Items.length > 0) {
@@ -984,6 +979,104 @@ const Dashboard: React.FC = () => {
     });
   };
 
+  const handleCommitYToProduction = async (jobId: string, scenarioId: string) => {
+    try {
+      console.log('✅ handleCommitYToProduction called:', { jobId, scenarioId });
+      console.log('✅ whatIf.allScenarios:', whatIf.allScenarios);
+
+      // Find the scenario
+      if (!whatIf.allScenarios || !Array.isArray(whatIf.allScenarios)) {
+        console.error('❌ allScenarios is not available or not an array');
+        toast.error('Scenario data not loaded. Please refresh the page.');
+        return;
+      }
+
+      const scenario = whatIf.allScenarios.find(s => s.id === scenarioId);
+      console.log('✅ Found scenario:', scenario);
+
+      if (!scenario) {
+        toast.error('Scenario not found.');
+        return;
+      }
+
+      // Find the production job
+      const productionJob = kittingJobs.find(j => j.id === jobId);
+      console.log('✅ Found production job:', productionJob);
+
+      if (!productionJob) {
+        toast.error('Production job not found.');
+        return;
+      }
+
+      // Find the MODIFY change for this job in the scenario
+      if (!scenario.changes || !Array.isArray(scenario.changes)) {
+        console.error('❌ scenario.changes is not available or not an array');
+        toast.error('Scenario has no changes data.');
+        return;
+      }
+
+      const jobChange = scenario.changes.find(
+        c => c.jobId === jobId && c.operation === 'MODIFY'
+      );
+      console.log('✅ Found job change:', jobChange);
+
+      if (!jobChange) {
+        toast.error('No changes found for this job in the scenario.');
+        return;
+      }
+
+      // Confirm with user
+      const confirmed = window.confirm(
+        `Commit Y scenario "${scenario.name}" changes to production job ${productionJob.jobNumber}?\n\n` +
+        `This will update the production job with the Y scenario's configuration.`
+      );
+
+      if (!confirmed) {
+        console.log('❌ User cancelled commit');
+        return;
+      }
+
+      console.log('✅ Committing changes:', jobChange.changeData);
+
+      // Apply the change data to update the production job
+      const response = await fetch(apiUrl(`/api/kitting-jobs/${jobId}`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(jobChange.changeData),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      console.log('✅ Job updated successfully, now deleting scenario...');
+
+      // Delete the scenario since it's been committed to production
+      const deleteResponse = await fetch(apiUrl(`/api/scenarios/${scenarioId}`), {
+        method: 'DELETE',
+      });
+
+      if (!deleteResponse.ok) {
+        console.error('Failed to delete scenario after commit');
+        // Don't throw - the job update succeeded, this is just cleanup
+      } else {
+        console.log('✅ Scenario deleted successfully');
+      }
+
+      // Refresh the job list to show updated production data
+      await fetchKittingJobs();
+
+      // Refresh scenarios list to remove the deleted scenario
+      await whatIf.fetchScenarios();
+
+      toast.success(`✅ Committed Y scenario "${scenario.name}" to ${productionJob.jobNumber}`);
+      console.log('✅ Commit successful');
+    } catch (error) {
+      console.error('❌ Failed to commit Y scenario to production:', error);
+      toast.error(`Failed to commit changes: ${error.message || 'Unknown error'}`);
+    }
+  };
+
   const handleSaveStationCount = async (jobId: string, stationCount: number) => {
     console.log('💾 handleSaveStationCount called');
     console.log('💾 jobId:', jobId);
@@ -1058,24 +1151,43 @@ const Dashboard: React.FC = () => {
 
   const handleSaveAllowedShifts = async (jobId: string, allowedShiftIds: string[]) => {
     try {
-      console.log('🔮 handleSaveAllowedShifts called:', {
-        jobId,
-        allowedShiftIds,
-        isYScenario: shiftsEditorState.isYScenario,
-        shiftsEditorState
-      });
+      console.log('💾 Saving allowed shifts:', { jobId, count: allowedShiftIds.length });
 
       if (shiftsEditorState.isYScenario) {
-        // Update scenario, not production
-        console.log('🔮 Updating allowed shifts in Y scenario');
-        console.log('🔮 SCENARIO MODE - Will NOT update production database');
-        await whatIf.updateScenarioShifts(jobId, allowedShiftIds);
+        // Update Y scenario, not production
+        console.log('🔮 Updating Y scenario shifts');
+        const scenarioId = shiftsEditorState.job?.__yScenario;
+        if (!scenarioId) {
+          throw new Error('Cannot find scenario ID for Y overlay job');
+        }
+
+        // Get existing change data for this job (if any)
+        const scenario = whatIf.allScenarios.find(s => s.id === scenarioId);
+        const existingChange = scenario?.changes.find(c => c.jobId === jobId && c.operation === 'MODIFY');
+        const changeData = existingChange?.changeData || {};
+        changeData.allowedShiftIds = allowedShiftIds;
+
+        // Add/update the change to the specific scenario
+        const response = await fetch(apiUrl(`/api/scenarios/${scenarioId}/changes`), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jobId,
+            operation: 'MODIFY',
+            changeData,
+            originalData: { allowedShiftIds: shiftsEditorState.job?.allowedShiftIds }
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to update Y scenario shifts');
+        }
+
         // Refresh scenarios to recalculate duration with new shifts
         await whatIf.fetchScenarios();
         toast.success(`🔮 Updated Y scenario shifts (${allowedShiftIds.length} shifts)`);
       } else {
         // Update production job
-        console.log('🏭 PRODUCTION MODE - Will update production database');
         const response = await fetch(apiUrl(`/api/kitting-jobs/${jobId}`), {
           method: 'PATCH',
           headers: {
@@ -1089,12 +1201,41 @@ const Dashboard: React.FC = () => {
         }
 
         // Refresh jobs to show updated schedule
-        fetchKittingJobs();
+        await fetchKittingJobs();
+
         toast.success(`✓ Updated allowed shifts (${allowedShiftIds.length} shifts)`);
       }
     } catch (error) {
       console.error('Failed to update allowed shifts:', error);
       throw error; // Re-throw to let modal handle it
+    }
+  };
+
+  const handleEditJob = (jobId: string) => {
+    console.log('✏️ handleEditJob called with jobId:', jobId);
+    // Open job in new tab for editing
+    window.open(`/edit-job/${jobId}`, '_blank');
+  };
+
+  const handleDeleteJob = async (jobId: string) => {
+    console.log('🗑️ handleDeleteJob called with jobId:', jobId);
+
+    try {
+      const response = await fetch(apiUrl(`/api/kitting-jobs/${jobId}`), {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        toast.success('Job deleted successfully');
+        // Refresh jobs list
+        await fetchKittingJobs();
+      } else {
+        const error = await response.text();
+        toast.error(`Failed to delete job: ${error}`);
+      }
+    } catch (error) {
+      console.error('Failed to delete job:', error);
+      toast.error('Failed to delete job. Please try again.');
     }
   };
 
@@ -1221,34 +1362,33 @@ const Dashboard: React.FC = () => {
                 </div>
               )}
 
-              {/* What-If Control Button */}
-              <button
-                onClick={() => setIsWhatIfPanelOpen(true)}
-                className={`relative px-4 py-2 rounded-lg text-sm font-medium transition-all shadow-md flex items-center gap-2 ${
-                  whatIf.mode === 'whatif'
-                    ? 'bg-purple-600 text-white hover:bg-purple-700'
-                    : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                }`}
-                title="What-If Scenario Planning"
-              >
-                🔮 What-If
-                {whatIf.changeCount > 0 && (
-                  <span className="ml-1 px-2 py-1 bg-purple-700 text-white text-xs rounded-full font-bold">
-                    {whatIf.changeCount}
-                  </span>
-                )}
-              </button>
-
               {/* Filter Panel Toggle */}
               <button
                 onClick={() => setIsFilterPanelOpen(true)}
                 className="relative px-4 py-2 rounded-lg text-sm font-medium bg-blue-500 text-white hover:bg-blue-600 transition-all shadow-md flex items-center gap-2"
                 title="Filters - Jobs & Y Overlays (Cmd+F)"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                {/* Y/Ŷ Dual Timeline Icon */}
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  {/* Y (Production) - Solid line */}
+                  <path d="M 3 18 L 8 15 L 13 16 L 18 12 L 21 10"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        fill="none"/>
+                  {/* Ŷ (Scenarios) - Dashed line */}
+                  <path d="M 3 20 L 8 16 L 13 17 L 18 11 L 21 8"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeDasharray="3,2"
+                        opacity="0.7"
+                        fill="none"/>
+                  {/* Data points */}
+                  <circle cx="21" cy="10" r="1.5" fill="currentColor"/>
+                  <circle cx="21" cy="8" r="1.5" fill="currentColor" opacity="0.7"/>
                 </svg>
-                🔍 Filters
+                Filters
                 {/* Hidden Jobs Badge (top-right) */}
                 {jobFilters.hiddenJobCount > 0 && (
                   <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
@@ -1284,8 +1424,12 @@ const Dashboard: React.FC = () => {
               onEditAllowedShifts={handleEditAllowedShifts}
               onCreateScenarioForJob={handleCreateScenarioForJob}
               onEditProductionDelays={handleEditProductionDelays}
+              onCommitYToProduction={handleCommitYToProduction}
+              onEditJob={handleEditJob}
+              onDeleteJob={handleDeleteJob}
               densityMode={jobFilters.densityMode}
               activeShifts={activeShifts}
+              allShifts={allShifts}
             />
           ) : calendarView === 'weekly' ? (
             <WeeklyCalendar
@@ -1303,7 +1447,11 @@ const Dashboard: React.FC = () => {
               onEditAllowedShifts={handleEditAllowedShifts}
               onCreateScenarioForJob={handleCreateScenarioForJob}
               onEditProductionDelays={handleEditProductionDelays}
+              onCommitYToProduction={handleCommitYToProduction}
+              onEditJob={handleEditJob}
+              onDeleteJob={handleDeleteJob}
               densityMode={jobFilters.densityMode}
+              allShifts={allShifts}
             />
           ) : (
             <MonthlyCalendar
@@ -1321,7 +1469,11 @@ const Dashboard: React.FC = () => {
               onEditAllowedShifts={handleEditAllowedShifts}
               onCreateScenarioForJob={handleCreateScenarioForJob}
               onEditProductionDelays={handleEditProductionDelays}
+              onCommitYToProduction={handleCommitYToProduction}
+              onEditJob={handleEditJob}
+              onDeleteJob={handleDeleteJob}
               densityMode={jobFilters.densityMode}
+              allShifts={allShifts}
             />
           )}
         </div>
@@ -1365,23 +1517,11 @@ const Dashboard: React.FC = () => {
           yOverlayCount={filteredYOverlayJobs.length}
           allJobs={kittingJobs}
           delayManagerContext={delayManagerContext}
+          onCreateScenario={whatIf.createScenario}
+          onCommitScenario={whatIf.commitScenario}
+          onDeleteScenario={whatIf.discardScenario}
         />
 
-        <WhatIfControl
-          isOpen={isWhatIfPanelOpen}
-          onClose={() => setIsWhatIfPanelOpen(false)}
-          mode={whatIf.mode}
-          onModeChange={whatIf.switchMode}
-          activeScenario={whatIf.activeScenario}
-          allScenarios={whatIf.allScenarios}
-          changeCount={whatIf.changeCount}
-          allJobs={kittingJobs}
-          onCreateScenario={whatIf.createScenario}
-          onActivateScenario={whatIf.activateScenario}
-          onCommitScenario={whatIf.commitScenario}
-          onDiscardScenario={whatIf.discardScenario}
-          onDeleteChange={whatIf.deleteChange}
-        />
 
         <ShiftConfigModal
           isOpen={isShiftModalOpen}
