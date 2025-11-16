@@ -147,6 +147,32 @@
 
 ---
 
+### Database Safety
+**File**: `developer-guides/database-safety.md` (6KB)
+
+**What it covers**:
+- **⚠️ CRITICAL**: Shared database protection rules
+- **Never Commands**: `prisma db push`, DROP TABLE, destructive operations
+- **Safe Practices**: Additive migrations only, backup procedures
+- **Migration Workflow**: Step-by-step safe migration process
+- **Emergency Recovery**: Rollback procedures if something goes wrong
+
+**When to read**:
+- **BEFORE running ANY database migration** (mandatory)
+- Planning schema changes
+- Working with Prisma schema
+- Database errors or issues
+
+**Key warnings**:
+- ❌ **NEVER run `prisma db push`** - Will destroy shared database
+- ❌ **NEVER DROP existing tables** - Other applications depend on them
+- ✅ **ALWAYS use additive migrations** - CREATE TABLE, ADD COLUMN only
+- ✅ **ALWAYS backup before migrations** - No exceptions
+
+**Critical context**: The `motioPGDB` database is shared across multiple ERP applications (KitTrix, Estimating, etc.). Destructive changes will break other systems.
+
+---
+
 ## 📋 Project Management
 
 ### Changelog
