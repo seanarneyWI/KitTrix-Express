@@ -284,13 +284,33 @@ const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
             </button>
             <button
               onClick={() => setActiveTab('yoverlays')}
-              className={`flex-1 px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+              className={`flex-1 px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2 ${
                 activeTab === 'yoverlays'
                   ? 'bg-purple-500 text-white shadow-md'
                   : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-300'
               }`}
             >
-              🔮 Ŷ (Scenarios)
+              {/* Y/Ŷ Dual Timeline Icon */}
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                {/* Y (Production) - Solid line */}
+                <path d="M 3 18 L 8 15 L 13 16 L 18 12 L 21 10"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      fill="none"/>
+                {/* Ŷ (Scenarios) - Dashed line */}
+                <path d="M 3 20 L 8 16 L 13 17 L 18 11 L 21 8"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeDasharray="3,2"
+                      opacity="0.7"
+                      fill="none"/>
+                {/* Data points */}
+                <circle cx="21" cy="10" r="1.5" fill="currentColor"/>
+                <circle cx="21" cy="8" r="1.5" fill="currentColor" opacity="0.7"/>
+              </svg>
+              Ŷ (Scenarios)
             </button>
           </div>
 
@@ -481,7 +501,30 @@ const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
 
               {allScenarios.length === 0 ? (
                 <div className="text-center py-12">
-                  <div className="text-6xl mb-4">🔮</div>
+                  {/* Y/Ŷ Dual Timeline Icon - Large */}
+                  <div className="flex justify-center mb-4">
+                    <svg className="w-24 h-24 text-purple-400" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      {/* Background circle */}
+                      <circle cx="32" cy="32" r="30" fill="currentColor" opacity="0.1"/>
+                      {/* Y (Production) - Solid line */}
+                      <path d="M 12 48 L 20 38 L 32 42 L 44 32 L 52 28"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                            fill="none"
+                            opacity="0.8"/>
+                      {/* Ŷ (Scenarios) - Dashed line */}
+                      <path d="M 12 52 L 20 40 L 32 44 L 44 30 L 52 24"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                            strokeDasharray="6,4"
+                            fill="none"/>
+                      {/* Data points */}
+                      <circle cx="52" cy="28" r="3" fill="currentColor" opacity="0.8"/>
+                      <circle cx="52" cy="24" r="3" fill="currentColor"/>
+                    </svg>
+                  </div>
                   <h4 className="text-lg font-semibold text-gray-800 mb-2">No Y Scenarios Yet</h4>
                   <p className="text-sm text-gray-600 mb-6">
                     Create what-if scenarios to overlay and compare on the calendar
