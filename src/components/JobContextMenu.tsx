@@ -446,18 +446,18 @@ const JobContextMenu: React.FC<JobContextMenuProps> = ({
           </>
         )}
 
-        {/* Delete from Scenario - Only for Y overlays */}
+        {/* Delete - For Y overlays: removes from scenario */}
         {isYScenario && onDeleteFromScenario && (
           <>
             <hr className="my-1" />
             <button
               className="w-full px-4 py-2 text-left hover:bg-red-50 flex items-center gap-2 text-red-600"
               onClick={() => {
-                console.log('=== DELETE FROM SCENARIO CLICKED ===');
+                console.log('=== DELETE Y OVERLAY CLICKED ===');
                 console.log('Job ID:', actualJobId, 'Scenario ID:', event.__yScenario);
 
                 const confirmed = window.confirm(
-                  `Remove job ${event.title} from scenario "${event.__yScenarioName}"?\n\nThis will delete this job from the Y scenario.`
+                  `Delete ${event.title} from Ŷ scenario "${event.__yScenarioName}"?\n\nThis will remove this job from the scenario. Production schedule will not be affected.`
                 );
                 if (confirmed && event.__yScenario) {
                   onDeleteFromScenario(actualJobId, event.__yScenario);
@@ -468,21 +468,21 @@ const JobContextMenu: React.FC<JobContextMenuProps> = ({
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
-              🗑️ Delete from Scenario
+              🗑️ Delete
             </button>
           </>
         )}
 
-        {/* Delete Job - Dangerous action */}
+        {/* Delete - For production jobs: deletes the actual job */}
         {!isYScenario && onDeleteJob && (
           <>
             <hr className="my-1" />
             <button
               className="w-full px-4 py-2 text-left hover:bg-red-50 flex items-center gap-2 text-red-600"
               onClick={() => {
-                console.log('=== DELETE JOB CLICKED ===');
+                console.log('=== DELETE PRODUCTION JOB CLICKED ===');
                 const confirmed = window.confirm(
-                  `Are you sure you want to delete job ${event.title}?\n\nThis action cannot be undone.`
+                  `Delete production job ${event.title}?\n\nThis will permanently delete this job from the database.\n\nThis action cannot be undone.`
                 );
                 if (confirmed) {
                   onDeleteJob(actualJobId);
@@ -493,7 +493,7 @@ const JobContextMenu: React.FC<JobContextMenuProps> = ({
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
-              🗑️ Delete Job
+              🗑️ Delete
             </button>
           </>
         )}
