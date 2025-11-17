@@ -100,7 +100,6 @@ const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
   // Auto-open DelayManager when context is provided from job card button
   useEffect(() => {
     if (delayManagerContext?.scenarioId || delayManagerContext?.jobId) {
-      console.log('⏰ Opening Delay Manager from context:', delayManagerContext);
       setDelayManagerState({
         isOpen: true,
         defaultScenarioId: delayManagerContext.scenarioId,
@@ -912,7 +911,6 @@ const JobFilterPanel: React.FC<JobFilterPanelProps> = ({
         defaultScenarioId={delayManagerState.defaultScenarioId}
         defaultJobId={delayManagerState.defaultJobId}
         onDelaysChanged={() => {
-          console.log('⏰ Delays changed, refreshing scenarios...');
           // The parent component will handle refreshing scenario data
         }}
       />

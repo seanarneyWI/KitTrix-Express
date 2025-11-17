@@ -436,7 +436,6 @@ const Admin: React.FC = () => {
                   <h1 className="text-2xl font-bold text-gray-800">Work Shift Management</h1>
                 </div>
                 <ShiftControl onShiftsChange={(activeShifts) => {
-                  console.log('Active shifts updated:', activeShifts);
                   // Dispatch event to notify Dashboard of shift changes
                   window.dispatchEvent(new CustomEvent('shiftsUpdated', { detail: activeShifts }));
                 }} />

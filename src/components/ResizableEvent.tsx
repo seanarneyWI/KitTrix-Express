@@ -105,25 +105,16 @@ const ResizableEvent: React.FC<ResizableEventProps> = ({
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
-    console.log('=== RESIZABLE EVENT CONTEXT MENU DEBUG ===');
-    console.log('Event ID:', event.id);
-    console.log('Event type:', event.type);
-    console.log('Event object:', event);
-    console.log('Mouse event:', e.type, e.button);
-    console.log('Position:', e.clientX, e.clientY);
 
     // Only show context menu for kitting jobs, not regular events
     if (event.type === 'kitting-job') {
-      console.log('✅ This is a kitting job - showing context menu');
       e.preventDefault();
       e.stopPropagation();
       e.nativeEvent.preventDefault();
       e.nativeEvent.stopPropagation();
       setContextMenu({ x: e.clientX, y: e.clientY });
-      console.log('Context menu state set:', { x: e.clientX, y: e.clientY });
       return false; // Extra prevention
     } else {
-      console.log('❌ Not a kitting job, event type is:', event.type);
     }
   };
 

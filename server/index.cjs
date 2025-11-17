@@ -155,7 +155,45 @@ app.post('/api/kitting-jobs', async (req, res) => {
 app.patch('/api/kitting-jobs/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
-    const updateData = req.body;
+    const rawUpdateData = req.body;
+
+    console.log('📝 PATCH /api/kitting-jobs/:jobId - Raw data:', rawUpdateData);
+
+    // Sanitize data: Remove display-only and virtual fields that shouldn't be saved to DB
+    const sanitizedData = { ...rawUpdateData };
+    delete sanitizedData.__yScenario;
+    delete sanitizedData.__yScenarioName;
+    delete sanitizedData.__yScenarioDeleted;
+    delete sanitizedData.__whatif;
+    delete sanitizedData.jobNumber;  // Display-only field
+    delete sanitizedData.customerName;  // Display-only field
+    delete sanitizedData.id;  // Don't allow ID changes
+    delete sanitizedData.createdAt;  // Don't allow timestamp changes
+    delete sanitizedData.updatedAt;  // Prisma handles this automatically
+    delete sanitizedData.routeSteps;  // Don't update route steps via this endpoint
+    delete sanitizedData.assignments;  // Don't update assignments via this endpoint
+
+    // Convert date strings to Date objects if needed
+    if (sanitizedData.scheduledDate !== undefined) {
+      if (sanitizedData.scheduledDate === null || sanitizedData.scheduledDate === '') {
+        // Remove empty/null scheduledDate from update data to avoid Prisma validation error
+        delete sanitizedData.scheduledDate;
+        console.log('📅 Removed empty scheduledDate from update data');
+      } else if (typeof sanitizedData.scheduledDate === 'string') {
+        const parsedDate = new Date(sanitizedData.scheduledDate);
+        if (isNaN(parsedDate.getTime())) {
+          // Invalid date string - remove it
+          delete sanitizedData.scheduledDate;
+          console.log('📅 Removed invalid scheduledDate from update data:', sanitizedData.scheduledDate);
+        } else {
+          sanitizedData.scheduledDate = parsedDate;
+          console.log('📅 Converted scheduledDate:', sanitizedData.scheduledDate);
+        }
+      }
+    }
+
+    const updateData = sanitizedData;
+    console.log('✅ Sanitized data:', updateData);
 
     // Validate shift IDs if provided
     if (updateData.allowedShiftIds && updateData.allowedShiftIds.length > 0) {
@@ -173,6 +211,25 @@ app.patch('/api/kitting-jobs/:jobId', async (req, res) => {
           error: 'Invalid shift IDs provided',
           invalidIds
         });
+      }
+    }
+
+    // If stationCount is being updated, recalculate expectedJobDuration
+    if (updateData.stationCount !== undefined) {
+      // Fetch current job data
+      const currentJob = await prisma.kittingJob.findUnique({
+        where: { id: jobId }
+      });
+
+      if (currentJob) {
+        // Recalculate expectedJobDuration with new station count
+        // Formula: EJD = Setup + MakeReady + Math.ceil((EKD × Qty) ÷ StationCount) + TakeDown
+        const totalKitTime = currentJob.expectedKitDuration * currentJob.orderedQuantity;
+        const parallelizedKitTime = Math.ceil(totalKitTime / updateData.stationCount);
+        const newExpectedJobDuration = currentJob.setup + currentJob.makeReady + parallelizedKitTime + currentJob.takeDown;
+
+        updateData.expectedJobDuration = newExpectedJobDuration;
+        console.log(`🔧 Recalculated job duration for ${currentJob.jobNumber}: ${currentJob.expectedJobDuration}s → ${newExpectedJobDuration}s (${updateData.stationCount} stations)`);
       }
     }
 
@@ -560,12 +617,13 @@ app.get('/api/scenarios/active', async (req, res) => {
 // Create new scenario
 app.post('/api/scenarios', async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, sourceJobId } = req.body;
 
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Scenario name is required' });
     }
 
+    // Create the scenario
     const scenario = await prisma.scenario.create({
       data: {
         name: name.trim(),
@@ -575,7 +633,54 @@ app.post('/api/scenarios', async (req, res) => {
     });
 
     console.log(`🔮 Created new scenario: ${scenario.name}`);
-    res.json(scenario);
+
+    // If sourceJobId provided, create initial MODIFY change to mirror the job
+    if (sourceJobId) {
+      // Fetch the source job with all its data
+      const sourceJob = await prisma.kittingJob.findUnique({
+        where: { id: sourceJobId },
+        include: {
+          routeSteps: { orderBy: { order: 'asc' } },
+          jobProgress: true
+        }
+      });
+
+      if (sourceJob) {
+        // Create a MODIFY change that copies the job's current state
+        const changeData = {
+          scheduledDate: sourceJob.scheduledDate,
+          scheduledStartTime: sourceJob.scheduledStartTime,
+          allowedShiftIds: sourceJob.allowedShiftIds,
+          jobNumber: sourceJob.jobNumber,
+          customerName: sourceJob.customerName
+        };
+
+        // Add station count from job_progress if available
+        if (sourceJob.jobProgress) {
+          changeData.stationCount = sourceJob.jobProgress.stationCount;
+        }
+
+        await prisma.scenarioChange.create({
+          data: {
+            scenarioId: scenario.id,
+            jobId: sourceJobId,
+            operation: 'MODIFY',
+            changeData: changeData,
+            originalData: changeData  // Same as changeData initially
+          }
+        });
+
+        console.log(`🔮 Created initial MODIFY change for job ${sourceJob.jobNumber} in scenario ${scenario.name}`);
+      }
+    }
+
+    // Return scenario with changes included
+    const scenarioWithChanges = await prisma.scenario.findUnique({
+      where: { id: scenario.id },
+      include: { changes: true }
+    });
+
+    res.json(scenarioWithChanges);
   } catch (error) {
     console.error('Error creating scenario:', error);
     res.status(500).json({ error: 'Failed to create scenario' });
@@ -624,6 +729,43 @@ app.post('/api/scenarios/:id/changes', async (req, res) => {
       return res.status(400).json({ error: 'changeData is required' });
     }
 
+    // For MODIFY operations, check if there's an existing MODIFY change for this job
+    // If yes, update it by merging changeData; if no, create a new one
+    if (operation === 'MODIFY' && jobId) {
+      const existingChange = await prisma.scenarioChange.findFirst({
+        where: {
+          scenarioId,
+          jobId,
+          operation: 'MODIFY'
+        }
+      });
+
+      if (existingChange) {
+        // Merge new changeData with existing changeData
+        const mergedChangeData = {
+          ...existingChange.changeData,
+          ...changeData
+        };
+
+        // Merge originalData too
+        const mergedOriginalData = originalData
+          ? { ...existingChange.originalData, ...originalData }
+          : existingChange.originalData;
+
+        const updated = await prisma.scenarioChange.update({
+          where: { id: existingChange.id },
+          data: {
+            changeData: mergedChangeData,
+            originalData: mergedOriginalData
+          }
+        });
+
+        console.log(`🔮 Updated existing MODIFY change for job ${jobId} in scenario ${scenarioId}`);
+        return res.json(updated);
+      }
+    }
+
+    // No existing change found, create a new one
     const change = await prisma.scenarioChange.create({
       data: {
         scenarioId,
@@ -639,6 +781,33 @@ app.post('/api/scenarios/:id/changes', async (req, res) => {
   } catch (error) {
     console.error('Error adding change to scenario:', error);
     res.status(500).json({ error: 'Failed to add change' });
+  }
+});
+
+// Delete individual scenario change
+app.delete('/api/scenario-changes/:changeId', async (req, res) => {
+  try {
+    const { changeId } = req.params;
+
+    // Verify change exists
+    const change = await prisma.scenarioChange.findUnique({
+      where: { id: changeId }
+    });
+
+    if (!change) {
+      return res.status(404).json({ error: 'Change not found' });
+    }
+
+    // Delete the change
+    await prisma.scenarioChange.delete({
+      where: { id: changeId }
+    });
+
+    console.log(`🗑️ Deleted change ${changeId} from scenario ${change.scenarioId}`);
+    res.json({ success: true, deletedChangeId: changeId });
+  } catch (error) {
+    console.error('Error deleting scenario change:', error);
+    res.status(500).json({ error: 'Failed to delete change' });
   }
 });
 
@@ -770,7 +939,8 @@ app.delete('/api/scenarios/:id', async (req, res) => {
   }
 });
 
-// ==================== Job Delay API (Y Scenario Delays) ====================
+// ==================== Job Delay API ====================
+// Supports both production delays (scenarioId = NULL) and scenario-specific delays
 
 // Get all delays for a scenario
 app.get('/api/scenarios/:id/delays', async (req, res) => {
@@ -811,6 +981,27 @@ app.get('/api/scenarios/:scenarioId/jobs/:jobId/delays', async (req, res) => {
   }
 });
 
+// Get production delays for a specific job (scenarioId = NULL)
+app.get('/api/jobs/:jobId/delays', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+
+    const delays = await prisma.jobDelay.findMany({
+      where: {
+        scenarioId: null,
+        jobId
+      },
+      orderBy: { insertAfter: 'asc' }
+    });
+
+    console.log(`⏰ Fetched ${delays.length} production delays for job ${jobId}`);
+    res.json(delays);
+  } catch (error) {
+    console.error('Error fetching production job delays:', error);
+    res.status(500).json({ error: 'Failed to fetch production job delays' });
+  }
+});
+
 // Create new delay for a job in a scenario
 app.post('/api/scenarios/:id/delays', async (req, res) => {
   try {
@@ -844,11 +1035,52 @@ app.post('/api/scenarios/:id/delays', async (req, res) => {
       }
     });
 
-    console.log(`⏰ Created delay "${delay.name}" (${delay.duration}s) for job ${jobId}`);
+    console.log(`⏰ Created scenario delay "${delay.name}" (${delay.duration}s) for job ${jobId}`);
     res.json(delay);
   } catch (error) {
     console.error('Error creating delay:', error);
     res.status(500).json({ error: 'Failed to create delay' });
+  }
+});
+
+// Create new production delay for a job (scenarioId = NULL)
+app.post('/api/jobs/:jobId/delays', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { name, duration, insertAfter } = req.body;
+
+    // Validate required fields
+    if (!name || duration === undefined || insertAfter === undefined) {
+      return res.status(400).json({
+        error: 'Missing required fields: name, duration, insertAfter'
+      });
+    }
+
+    // Validate duration is positive
+    if (duration <= 0) {
+      return res.status(400).json({ error: 'Duration must be positive' });
+    }
+
+    // Validate insertAfter is non-negative
+    if (insertAfter < 0) {
+      return res.status(400).json({ error: 'insertAfter must be non-negative' });
+    }
+
+    const delay = await prisma.jobDelay.create({
+      data: {
+        scenarioId: null, // Production delay
+        jobId,
+        name: name.trim(),
+        duration: parseInt(duration),
+        insertAfter: parseInt(insertAfter)
+      }
+    });
+
+    console.log(`⏰ Created production delay "${delay.name}" (${delay.duration}s) for job ${jobId}`);
+    res.json(delay);
+  } catch (error) {
+    console.error('Error creating production delay:', error);
+    res.status(500).json({ error: 'Failed to create production delay' });
   }
 });
 

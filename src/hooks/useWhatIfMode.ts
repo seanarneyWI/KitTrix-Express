@@ -79,7 +79,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
     channel.onmessage = (event) => {
       const { type, data } = event.data;
 
-      console.log('🔮 BroadcastChannel message received:', type, data);
 
       switch (type) {
         case 'mode-changed':
@@ -104,7 +103,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
     setBroadcastChannel(channel);
 
     return () => {
-      console.log('🔮 Closing BroadcastChannel');
       channel.close();
     };
   }, []);
@@ -159,7 +157,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
         const delays = await fetchProductionDelays(job.id);
         if (delays.length > 0) {
           delaysMap.set(job.id, delays);
-          // console.log(`  ⏰ Fetched ${delays.length} production delays for job ${job.jobNumber}`);
         }
       }
       setProductionDelays(delaysMap);
@@ -179,7 +176,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
       }
       const scenarios = await response.json();
       setAllScenarios(scenarios);
-      console.log(`🔮 Fetched ${scenarios.length} scenarios`);
 
       // Fetch delays for all scenarios
       const delaysMap = new Map<string, any[]>();
@@ -187,7 +183,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
         const delays = await fetchScenarioDelays(scenario.id);
         if (delays.length > 0) {
           delaysMap.set(scenario.id, delays);
-          console.log(`  ⏰ Fetched ${delays.length} delays for scenario ${scenario.name}`);
         }
       }
       setScenarioDelays(delaysMap);
@@ -210,11 +205,9 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
       if (scenario) {
         setActiveScenario(scenario);
         setMode('whatif');
-        console.log(`🔮 Active scenario loaded: ${scenario.name} (${scenario.changes.length} changes)`);
       } else {
         setActiveScenario(null);
         setMode('production');
-        console.log('🔮 No active scenario');
       }
     } catch (error) {
       console.error('Failed to fetch active scenario:', error);
@@ -230,7 +223,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
   // Fetch production delays when jobs change
   useEffect(() => {
     if (productionJobs.length > 0) {
-      // console.log('🔮 Fetching production delays for all jobs');
       fetchAllProductionDelays(productionJobs);
     }
   }, [productionJobs]);
@@ -245,7 +237,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
 
     // In what-if mode, apply scenario changes first
     if (activeScenario && mode === 'whatif') {
-      // console.log(`🔮 Applying ${activeScenario.changes.length} changes to ${productionJobs.length} production jobs`);
 
       let modifiedJobs = [...productionJobs];
 
@@ -257,7 +248,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
               ...change.changeData,
               __whatif: 'added'  // Mark for visual indicator
             } as any);
-            // console.log(`  ➕ Added job: ${change.changeData.jobNumber || 'New Job'}`);
             break;
 
           case 'MODIFY':
@@ -273,16 +263,13 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
                     modifiedJob,
                     change.changeData.stationCount
                   );
-                  // console.log(`  🔧 Recalculated duration for station count change`);
                 } else if (change.changeData.allowedShiftIds) {
-                  // console.log(`  🔧 Shift change detected - calendar will auto-adjust`);
                 }
 
                 return modifiedJob;
               }
               return job;
             });
-            // console.log(`  ✏️ Modified job: ${change.jobId}`);
             break;
 
           case 'DELETE':
@@ -292,7 +279,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
                 ? { ...job, __whatif: 'deleted' } as any
                 : job
             );
-            console.log(`  🗑️ Deleted job: ${change.jobId}`);
             break;
         }
       }
@@ -302,12 +288,15 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
 
     // Apply production delays to ALL jobs (in both production and what-if mode)
     if (productionDelays.size > 0) {
-      // console.log(`⏰ Applying production delays to ${jobs.length} jobs`);
       jobs = jobs.map(job => {
         const jobDelays = productionDelays.get(job.id);
         if (jobDelays && jobDelays.length > 0) {
-          // console.log(`  ⏰ Applying ${jobDelays.length} production delays to job ${job.jobNumber}`);
-          return applyDelaysToJob(job, jobDelays);
+          const beforeDuration = job.expectedJobDuration;
+          const result = applyDelaysToJob(job, jobDelays);
+          console.log('🔍 DIAGNOSTIC: Applying production delays');
+          console.log('  Job:', job.jobNumber, 'Before:', beforeDuration + 's');
+          console.log('  Delays:', jobDelays.length, 'After:', result.expectedJobDuration + 's');
+          return result;
         }
         return job;
       });
@@ -333,7 +322,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
 
       const scenario = await response.json();
       await fetchScenarios();
-      console.log(`🔮 Created scenario: ${scenario.name}${sourceJobId ? ' (mirroring job)' : ''}`);
       return scenario;
     } catch (error) {
       console.error('Failed to create scenario:', error);
@@ -364,7 +352,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
         data: { scenarioId }
       });
 
-      console.log(`🔮 Activated scenario: ${scenario.name}`);
       return scenario;
     } catch (error) {
       console.error('Failed to activate scenario:', error);
@@ -406,7 +393,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
       // Refresh active scenario to include new change
       await fetchActiveScenario();
 
-      console.log(`🔮 Added ${operation} change to scenario`);
       return change;
     } catch (error) {
       console.error('Failed to add change:', error);
@@ -434,7 +420,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
       // If there's an existing change, we're updating it; otherwise create new
       await addChange('MODIFY', jobId, changeData);
 
-      console.log(`🔧 Updated station count to ${stationCount} for job ${jobId} in scenario`);
     } catch (error) {
       console.error('Failed to update station count in scenario:', error);
       throw error;
@@ -461,7 +446,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
       // If there's an existing change, we're updating it; otherwise create new
       await addChange('MODIFY', jobId, changeData);
 
-      console.log(`🔧 Updated allowed shifts for job ${jobId} in scenario:`, allowedShiftIds);
     } catch (error) {
       console.error('Failed to update shifts in scenario:', error);
       throw error;
@@ -477,7 +461,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
     }
 
     try {
-      console.log(`🔮 Committing scenario: ${activeScenario.name}...`);
 
       const response = await fetch(apiUrl(`/api/scenarios/${activeScenario.id}/commit`), {
         method: 'POST'
@@ -489,7 +472,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
       }
 
       const result = await response.json();
-      console.log(`🔮 Scenario committed successfully:`, result.applied);
 
       setMode('production');
       setActiveScenario(null);
@@ -519,7 +501,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
     }
 
     try {
-      console.log(`🔮 Discarding scenario: ${activeScenario.name}...`);
 
       const response = await fetch(apiUrl(`/api/scenarios/${activeScenario.id}`), {
         method: 'DELETE'
@@ -529,7 +510,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
         throw new Error('Failed to discard scenario');
       }
 
-      console.log(`🔮 Scenario discarded successfully`);
 
       setMode('production');
       setActiveScenario(null);
@@ -556,7 +536,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
     }
 
     try {
-      console.log(`🗑️ Deleting change ${changeId} from scenario ${activeScenario.id}...`);
 
       const response = await fetch(apiUrl(`/api/scenario-changes/${changeId}`), {
         method: 'DELETE'
@@ -566,7 +545,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
         throw new Error('Failed to delete change');
       }
 
-      console.log(`🗑️ Change deleted successfully`);
 
       // Refresh active scenario to get updated changes list
       await fetchActiveScenario();
@@ -587,7 +565,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
    * Switch between production and what-if modes
    */
   const switchMode = (newMode: 'production' | 'whatif') => {
-    console.log(`🔮 Switching mode: ${mode} → ${newMode}`);
     setMode(newMode);
 
     // Broadcast to other windows
@@ -605,10 +582,8 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
       const newSet = new Set(prev);
       if (newSet.has(scenarioId)) {
         newSet.delete(scenarioId);
-        console.log(`🔮 Hiding Y scenario overlay: ${scenarioId}`);
       } else {
         newSet.add(scenarioId);
-        console.log(`🔮 Showing Y scenario overlay: ${scenarioId}`);
       }
       return newSet;
     });
@@ -638,7 +613,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
     }
 
     const visibleScenarios = allScenarios.filter(s => visibleYScenarioIds.has(s.id));
-    // console.log(`🔮 Computing Y overlay jobs from ${visibleScenarios.length} visible scenarios`);
 
     const overlayJobs: any[] = [];
 
@@ -670,7 +644,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
                 // Shift changes don't affect work duration, only calendar rendering
                 if (change.changeData.stationCount !== undefined) {
                   const originalStationCount = job.stationCount || 1;
-                  console.log(`  🔧 Y scenario ${scenario.name}: Recalculating for station change ${originalStationCount} → ${change.changeData.stationCount}`);
 
                   // Use the same recalculateJobDuration function that production jobs use
                   // This ensures consistent duration calculation logic
@@ -687,9 +660,10 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
                   const { stationCount, ...otherChanges } = change.changeData;
                   modifiedJob = { ...modifiedJob, ...otherChanges };
 
-                  console.log(`  ✅ Y scenario ${scenario.name}: Duration recalculated: ${job.expectedJobDuration}s → ${modifiedJob.expectedJobDuration}s`);
-                } else if (change.changeData.allowedShiftIds) {
-                  console.log(`  🔧 Y scenario: Shift change detected - calendar will auto-adjust`);
+                  console.log('🔍 DIAGNOSTIC: Y scenario duration recalculation');
+                  console.log('  Job:', job.jobNumber, 'Scenario:', scenario.name);
+                  console.log('  Station change:', originalStationCount, '→', change.changeData.stationCount);
+                  console.log('  Duration:', job.expectedJobDuration + 's', '→', modifiedJob.expectedJobDuration + 's');
                 }
 
                 return modifiedJob;
@@ -720,13 +694,11 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
       // Apply scenario-specific delays ONLY to jobs in this scenario (prevent bleeding between scenarios)
       const scenarioDelayList = scenarioDelays.get(scenario.id) || [];
       if (scenarioDelayList.length > 0) {
-        console.log(`  ⏰ Applying ${scenarioDelayList.length} scenario delays to scenario ${scenario.name}`);
         modifiedJobs = modifiedJobs.map(job => {
           // CRITICAL: Only apply delays if this job belongs to the current scenario
           if (job.__yScenario === scenario.id) {
             const jobDelays = scenarioDelayList.filter((d: JobDelay) => d.jobId === job.id);
             if (jobDelays.length > 0) {
-              console.log(`    ⏰ Applying ${jobDelays.length} scenario delays to job ${job.jobNumber} in scenario ${scenario.name}`);
               return applyDelaysToJob(job, jobDelays);
             }
           }
@@ -741,7 +713,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
           if (job.__yScenario === scenario.id) {
             const jobProductionDelays = productionDelays.get(job.id);
             if (jobProductionDelays && jobProductionDelays.length > 0) {
-              console.log(`    ⏰ Applying ${jobProductionDelays.length} production delays to job ${job.jobNumber} in scenario ${scenario.name}`);
               return applyDelaysToJob(job, jobProductionDelays);
             }
           }
@@ -754,7 +725,6 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
       overlayJobs.push(...scenarioJobs);
     });
 
-    // console.log(`🔮 Generated ${overlayJobs.length} Y overlay jobs`);
     return overlayJobs;
   }, [productionJobs, allScenarios, visibleYScenarioIds, scenarioDelays, productionDelays]);
 

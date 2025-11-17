@@ -94,13 +94,11 @@ const Dashboard: React.FC = () => {
 
     // Listen for job update events from other components
     const handleJobUpdate = () => {
-      console.log('Job update event received - refreshing jobs...');
       fetchKittingJobs();
     };
 
     // Auto-refresh when window gains focus (when returning from job creation)
     const handleWindowFocus = () => {
-      // console.log('Window focused - refreshing jobs...');
       fetchKittingJobs();
     };
 
@@ -108,7 +106,6 @@ const Dashboard: React.FC = () => {
     const handleOpenDelayManager = (e: Event) => {
       const customEvent = e as CustomEvent;
       const { scenarioId, jobId } = customEvent.detail;
-      console.log('⏰ Opening Delay Manager from job card:', { scenarioId, jobId });
       setDelayManagerContext({ scenarioId, jobId });
       setIsFilterPanelOpen(true); // Open filter panel which contains DelayManager
     };
@@ -134,7 +131,6 @@ const Dashboard: React.FC = () => {
       ]);
       setActiveShifts(activeShiftsData);
       setAllShifts(allShiftsData);
-      console.log('Loaded active shifts:', activeShiftsData.length, 'all shifts:', allShiftsData.length);
     } catch (error) {
       console.error('Failed to load shifts:', error);
       // Continue with empty shifts array (will fallback to 24/7 scheduling)
@@ -143,7 +139,6 @@ const Dashboard: React.FC = () => {
 
   const handleShiftsChange = (updatedActiveShifts: Shift[]) => {
     setActiveShifts(updatedActiveShifts);
-    console.log('Active shifts updated:', updatedActiveShifts.length);
     // Re-render calendar with new shift configuration
     // The calendar will automatically update because kittingJobToEvents depends on activeShifts
   };
@@ -313,7 +308,6 @@ const Dashboard: React.FC = () => {
   const kittingJobToEvents = (job: any): Event[] => {
     try {
       // DEBUG: DISABLED - too much logging
-      // console.log('🔄 Converting job to events (shift-based):', job.jobNumber);
 
       // Determine the start date and time for the job
       // Priority: scheduledDate/scheduledStartTime > current date/8:00 AM
@@ -321,7 +315,6 @@ const Dashboard: React.FC = () => {
       const startTimeStr = job.scheduledStartTime || '08:00';
 
       // DEBUG: DISABLED - too much logging
-      // console.log(`  📅 Job ${job.jobNumber}: scheduledDate=${job.scheduledDate}, startDate=${startDate.toISOString()}, startTime=${startTimeStr}`);
 
       // Create full start datetime
       const [startHours, startMinutes] = startTimeStr.split(':').map(Number);
@@ -352,7 +345,6 @@ const Dashboard: React.FC = () => {
         // If job spans multiple days, create events for each day
         if (startDateStr !== endDateStr) {
           // DEBUG: DISABLED - too much logging
-          // console.log(`  📊 Multi-day job detected: ${startDateStr} to ${endDateStr}`);
           const events: Event[] = [];
           let currentDate = new Date(startDate);
           let dayCounter = 0;
@@ -384,7 +376,6 @@ const Dashboard: React.FC = () => {
               // Overnight shift - use 23:59 as end time for this day
               dayEndTime = '23:59';
               // DEBUG: DISABLED - too much logging
-              // console.log(`    ⚠️ Overnight shift detected, using 23:59 as end time for display`);
             }
 
             // Calculate actual duration for this day segment
@@ -393,7 +384,6 @@ const Dashboard: React.FC = () => {
             const actualDurationMinutes = dayEndMinutes - dayStartMinutes;
 
             // DEBUG: DISABLED - too much logging
-            // console.log(`    Day ${dayCounter + 1}: ${currentDateStr} ${dayStartTime}-${dayEndTime} (${actualDurationMinutes} min)`);
 
             events.push({
               id: job.__yScenario
@@ -421,7 +411,6 @@ const Dashboard: React.FC = () => {
           }
 
           // DEBUG: DISABLED - too much logging
-          // console.log(`  ✅ Created ${events.length} day-events for ${job.jobNumber}`);
           return events;
         }
 
@@ -430,7 +419,6 @@ const Dashboard: React.FC = () => {
         const singleDayDurationMinutes = Math.ceil(job.expectedJobDuration / 60);
 
         // DEBUG: DISABLED - too much logging
-        // console.log(`  ✅ Single-day job: ${startDateStr} ${startTimeStr}-${endTimeStr} (${singleDayDurationMinutes} min)`);
         return [{
           id: job.__yScenario
             ? `y-${job.__yScenario}-${job.id}` // Unique key for Y overlays
@@ -515,7 +503,6 @@ const Dashboard: React.FC = () => {
 
   // DEBUG: DISABLED - too much logging
   // if (filteredYOverlayJobs.length > 0) {
-  //   console.log(`🔮 DEBUG: Filtered Y overlay jobs (${filteredYOverlayJobs.length}):`,
   //     filteredYOverlayJobs.map(j => ({
   //       jobNumber: j.jobNumber,
   //       __yScenario: j.__yScenario,
@@ -525,16 +512,12 @@ const Dashboard: React.FC = () => {
   // }
 
   // DEBUG: DISABLED - too much logging
-  // console.log(`🎯 FILTER STATE: visibleJobs=${jobFilters.visibleJobs.length}/${whatIf.jobs.length} total jobs`);
-  // console.log(`   Hidden count: ${jobFilters.hiddenJobCount}`);
-  // console.log(`   Visible job IDs:`, Array.from(jobFilters.visibleJobs.map(j => j.jobNumber)).join(', '));
 
   // Combine events and kitting jobs for display (use visible jobs from filter)
   const yOverlayEvents = filteredYOverlayJobs.flatMap(kittingJobToEvents);
 
   // DEBUG: DISABLED - too much logging
   // if (yOverlayEvents.length > 0) {
-  //   console.log(`🔮 DEBUG: Y overlay events after conversion (${yOverlayEvents.length}):`,
   //     yOverlayEvents.map(e => ({
   //       id: e.id,
   //       title: e.title,
@@ -559,9 +542,7 @@ const Dashboard: React.FC = () => {
   ];
   const oct27Items = allCalendarItems.filter(item => item.date === '2025-10-27');
   if (oct27Items.length > 0) {
-    console.log(`📍 Items for Oct 27: ${oct27Items.length}`);
     oct27Items.forEach(item => {
-      console.log(`  - ${item.id}: ${item.title} (${item.startTime}-${item.endTime})`);
     });
   }
 
@@ -886,26 +867,20 @@ const Dashboard: React.FC = () => {
   };
 
   const handleStartJob = (jobId: string) => {
-    console.log('=== NAVIGATION TO EXECUTION PAGE ===');
-    console.log('Starting job:', jobId);
-    console.log('Navigating to:', `/execute/${jobId}`);
     window.open(`/execute/${jobId}`, '_blank');
   };
 
   const handleEditStations = (jobId: string) => {
-    console.log('🔧 handleEditStations called with jobId:', jobId);
 
     // Check if this is a Y overlay job
     const yOverlayJob = whatIf.yOverlayJobs.find(j => j.id === jobId);
     if (yOverlayJob) {
-      console.log('🔮 Editing Y overlay job station count');
       setStationEditorState({ isOpen: true, job: yOverlayJob, isYScenario: true });
       return;
     }
 
     // Otherwise, it's a production job
     const job = kittingJobs.find(j => j.id === jobId);
-    console.log('🔧 Found production job:', job ? `${job.jobNumber} (${job.id})` : 'NOT FOUND');
     if (job) {
       setStationEditorState({ isOpen: true, job, isYScenario: false });
     } else {
@@ -918,7 +893,6 @@ const Dashboard: React.FC = () => {
     // Check if this is a Y overlay job
     const yOverlayJob = whatIf.yOverlayJobs.find(j => j.id === jobId);
     if (yOverlayJob) {
-      console.log('🔮 Editing Y overlay job shifts');
       setShiftsEditorState({ isOpen: true, job: yOverlayJob, isYScenario: true });
       return;
     }
@@ -931,7 +905,6 @@ const Dashboard: React.FC = () => {
   };
 
   const handleCreateScenarioForJob = async (jobId: string) => {
-    console.log('🔮 handleCreateScenarioForJob called with jobId:', jobId);
 
     const job = kittingJobs.find(j => j.id === jobId);
     if (!job) {
@@ -965,11 +938,22 @@ const Dashboard: React.FC = () => {
   };
 
   const handleEditProductionDelays = (jobId: string) => {
-    console.log('⏰ handleEditProductionDelays called with jobId:', jobId);
-
     const job = kittingJobs.find(j => j.id === jobId);
+
+    console.log('🔍 DIAGNOSTIC: Opening production delays editor');
+    console.log('  Job:', job?.jobNumber || 'NOT FOUND');
+    console.log('  Has routeSteps?', !!job?.routeSteps, 'Count:', job?.routeSteps?.length || 0);
+    console.log('  Duration:', job?.expectedJobDuration || 'N/A', 'seconds');
+    console.log('  Station count:', job?.stationCount || 'N/A');
+
     if (!job) {
       toast.error('Job not found. Please try refreshing the page.');
+      return;
+    }
+
+    if (!job.routeSteps || job.routeSteps.length === 0) {
+      toast.error('Cannot manage delays: Job route steps not loaded. Please refresh the page.');
+      console.error('❌ Job missing routeSteps:', job.jobNumber);
       return;
     }
 
@@ -981,8 +965,6 @@ const Dashboard: React.FC = () => {
 
   const handleCommitYToProduction = async (jobId: string, scenarioId: string) => {
     try {
-      console.log('✅ handleCommitYToProduction called:', { jobId, scenarioId });
-      console.log('✅ whatIf.allScenarios:', whatIf.allScenarios);
 
       // Find the scenario
       if (!whatIf.allScenarios || !Array.isArray(whatIf.allScenarios)) {
@@ -992,7 +974,6 @@ const Dashboard: React.FC = () => {
       }
 
       const scenario = whatIf.allScenarios.find(s => s.id === scenarioId);
-      console.log('✅ Found scenario:', scenario);
 
       if (!scenario) {
         toast.error('Scenario not found.');
@@ -1001,7 +982,6 @@ const Dashboard: React.FC = () => {
 
       // Find the production job
       const productionJob = kittingJobs.find(j => j.id === jobId);
-      console.log('✅ Found production job:', productionJob);
 
       if (!productionJob) {
         toast.error('Production job not found.');
@@ -1018,7 +998,6 @@ const Dashboard: React.FC = () => {
       const jobChange = scenario.changes.find(
         c => c.jobId === jobId && c.operation === 'MODIFY'
       );
-      console.log('✅ Found job change:', jobChange);
 
       if (!jobChange) {
         toast.error('No changes found for this job in the scenario.');
@@ -1032,11 +1011,9 @@ const Dashboard: React.FC = () => {
       );
 
       if (!confirmed) {
-        console.log('❌ User cancelled commit');
         return;
       }
 
-      console.log('✅ Committing changes:', jobChange.changeData);
 
       // Apply the change data to update the production job
       const response = await fetch(apiUrl(`/api/kitting-jobs/${jobId}`), {
@@ -1049,7 +1026,6 @@ const Dashboard: React.FC = () => {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      console.log('✅ Job updated successfully, now deleting scenario...');
 
       // Delete the scenario since it's been committed to production
       const deleteResponse = await fetch(apiUrl(`/api/scenarios/${scenarioId}`), {
@@ -1060,7 +1036,6 @@ const Dashboard: React.FC = () => {
         console.error('Failed to delete scenario after commit');
         // Don't throw - the job update succeeded, this is just cleanup
       } else {
-        console.log('✅ Scenario deleted successfully');
       }
 
       // Refresh the job list to show updated production data
@@ -1070,7 +1045,6 @@ const Dashboard: React.FC = () => {
       await whatIf.fetchScenarios();
 
       toast.success(`✅ Committed Y scenario "${scenario.name}" to ${productionJob.jobNumber}`);
-      console.log('✅ Commit successful');
     } catch (error) {
       console.error('❌ Failed to commit Y scenario to production:', error);
       toast.error(`Failed to commit changes: ${error.message || 'Unknown error'}`);
@@ -1078,15 +1052,10 @@ const Dashboard: React.FC = () => {
   };
 
   const handleSaveStationCount = async (jobId: string, stationCount: number) => {
-    console.log('💾 handleSaveStationCount called');
-    console.log('💾 jobId:', jobId);
-    console.log('💾 stationCount:', stationCount);
-    console.log('💾 isYScenario:', stationEditorState.isYScenario);
 
     try {
       if (stationEditorState.isYScenario) {
         // Update scenario, not production
-        console.log('🔮 Updating station count in Y scenario');
         const scenarioId = stationEditorState.job?.__yScenario;
         if (!scenarioId) {
           throw new Error('Cannot find scenario ID for Y overlay job');
@@ -1119,8 +1088,6 @@ const Dashboard: React.FC = () => {
         toast.success(`🔮 Updated Y scenario stations to ${stationCount}`);
       } else {
         // Update production job
-        console.log('💾 Updating production job station count');
-        console.log('💾 API URL:', apiUrl(`/api/kitting-jobs/${jobId}`));
 
         const response = await fetch(apiUrl(`/api/kitting-jobs/${jobId}`), {
           method: 'PATCH',
@@ -1130,8 +1097,6 @@ const Dashboard: React.FC = () => {
           body: JSON.stringify({ stationCount }),
         });
 
-        console.log('💾 Response status:', response.status);
-        console.log('💾 Response ok:', response.ok);
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -1151,11 +1116,9 @@ const Dashboard: React.FC = () => {
 
   const handleSaveAllowedShifts = async (jobId: string, allowedShiftIds: string[]) => {
     try {
-      console.log('💾 Saving allowed shifts:', { jobId, count: allowedShiftIds.length });
 
       if (shiftsEditorState.isYScenario) {
         // Update Y scenario, not production
-        console.log('🔮 Updating Y scenario shifts');
         const scenarioId = shiftsEditorState.job?.__yScenario;
         if (!scenarioId) {
           throw new Error('Cannot find scenario ID for Y overlay job');
@@ -1212,13 +1175,11 @@ const Dashboard: React.FC = () => {
   };
 
   const handleEditJob = (jobId: string) => {
-    console.log('✏️ handleEditJob called with jobId:', jobId);
     // Open job in new tab for editing
     window.open(`/edit-job/${jobId}`, '_blank');
   };
 
   const handleDeleteJob = async (jobId: string) => {
-    console.log('🗑️ handleDeleteJob called with jobId:', jobId);
 
     try {
       const response = await fetch(apiUrl(`/api/kitting-jobs/${jobId}`), {
@@ -1240,7 +1201,6 @@ const Dashboard: React.FC = () => {
   };
 
   const handleDeleteFromScenario = async (jobId: string, scenarioId: string) => {
-    console.log('🗑️ handleDeleteFromScenario called with jobId:', jobId, 'scenarioId:', scenarioId);
 
     try {
       // Use the whatIf hook's deleteChange method to remove the job from the scenario
@@ -1581,7 +1541,6 @@ const Dashboard: React.FC = () => {
             isProductionMode={true}
             onDelaysChanged={() => {
               // Refresh production delays to show updated durations
-              console.log('⏰ Refreshing production delays after change');
               whatIf.refreshProductionDelays();
             }}
           />

@@ -391,43 +391,33 @@ export function scheduleJobForwardWithConfig(
   allShifts: Shift[],
   allowedShiftIds: string[] = [],
   includeWeekends: boolean = false,
-  ignoreActiveStatus: boolean = false  // New parameter for Y scenarios
+  ignoreActiveStatus: boolean = false,  // New parameter for Y scenarios
+  debugJobNumber?: string  // Optional job number for targeted debugging
 ): Date {
-  console.log('📅 scheduleJobForwardWithConfig called:', {
-    startTime: startTime.toISOString(),
-    durationSeconds,
-    totalShifts: allShifts.length,
-    allowedShiftIds,
-    allowedShiftCount: allowedShiftIds.length,
-    includeWeekends,
-    ignoreActiveStatus
-  });
+  const isDebugJob = debugJobNumber === '2503-RUSH';
+
+  if (isDebugJob) {
+      jobNumber: debugJobNumber,
+      startTime: startTime.toISOString(),
+      durationSeconds,
+      allowedShiftIds,
+      allowedShiftCount: allowedShiftIds.length
+    });
+  }
+
   // Determine which shifts to use
   let shiftsToUse: Shift[];
 
   if (allowedShiftIds.length > 0) {
-    // Use specific shifts for this job
-    if (ignoreActiveStatus) {
-      // Y scenarios: ignore global isActive status to test any shift configuration
-      shiftsToUse = allShifts.filter(shift =>
-        allowedShiftIds.includes(shift.id)
-      );
-    } else {
-      // Production jobs: respect both allowedShiftIds AND isActive status
-      shiftsToUse = allShifts.filter(shift =>
-        shift.isActive && allowedShiftIds.includes(shift.id)
-      );
-    }
+    // Use specific shifts for this job - ignore global isActive status
+    // because the job has explicitly chosen which shifts to use
+    shiftsToUse = allShifts.filter(shift =>
+      allowedShiftIds.includes(shift.id)
+    );
   } else {
-    // Use all active shifts (backward compatible)
+    // No specific shifts assigned - use all globally active shifts (backward compatible)
     shiftsToUse = allShifts.filter(shift => shift.isActive);
   }
-
-  console.log('📅 Shifts selected for scheduling:', {
-    shiftsToUseCount: shiftsToUse.length,
-    shiftNames: shiftsToUse.map(s => s.name).join(', '),
-    totalProductiveHours: shiftsToUse.reduce((sum, s) => sum + getShiftProductiveHours(s), 0)
-  });
 
   if (shiftsToUse.length === 0) {
     console.warn('No shifts available for scheduling, using 24/7 scheduling');
@@ -441,7 +431,12 @@ export function scheduleJobForwardWithConfig(
   );
   let remainingSeconds = durationSeconds;
 
+  let loopCount = 0;
   while (remainingSeconds > 0) {
+    loopCount++;
+    if (isDebugJob && loopCount <= 20) {
+    }
+
     // Check if we're on a weekend and should skip
     if (!includeWeekends && isWeekend(currentTime)) {
       currentTime = skipToWeekday(currentTime);
@@ -458,6 +453,9 @@ export function scheduleJobForwardWithConfig(
       // Move to next shift
       currentTime = getNextProductiveTimeWithConfig(currentTime, shiftsToUse, includeWeekends);
       continue;
+    }
+
+    if (isDebugJob && loopCount <= 20) {
     }
 
     // Calculate time until end of current productive period
@@ -502,14 +500,20 @@ export function scheduleJobForwardWithConfig(
     }
   }
 
+  if (isDebugJob) {
+      startDate: startTime.toISOString().split('T')[0],
+      endDate: currentTime.toISOString().split('T')[0],
+      totalLoops: loopCount
+    });
+  }
+
   const totalDays = Math.ceil((currentTime.getTime() - startTime.getTime()) / (1000 * 60 * 60 * 24));
-  console.log('📅 Scheduling complete:', {
-    startDate: startTime.toISOString().split('T')[0],
-    endDate: currentTime.toISOString().split('T')[0],
-    totalDays,
-    durationSeconds,
-    shiftsUsed: shiftsToUse.length
-  });
+  //   startDate: startTime.toISOString().split('T')[0],
+  //   endDate: currentTime.toISOString().split('T')[0],
+  //   totalDays,
+  //   durationSeconds,
+  //   shiftsUsed: shiftsToUse.length
+  // });
 
   return currentTime;
 }
@@ -552,7 +556,10 @@ export function recalculateJobDuration(
   const totalKitSeconds = job.totalKitSeconds || (job.expectedJobDuration * (job.originalStationCount || job.stationCount || 1));
   const newExpectedJobDuration = totalKitSeconds / effectiveStationCount;
 
-  console.log(`🔧 Recalculating job duration: ${job.expectedJobDuration}s → ${newExpectedJobDuration}s (${effectiveStationCount} stations)`);
+  console.log('🔍 DIAGNOSTIC: Recalculating job duration');
+  console.log('  Job:', job.jobNumber || 'N/A');
+  console.log('  totalKitSeconds:', totalKitSeconds, 'stationCount:', effectiveStationCount);
+  console.log('  Result:', newExpectedJobDuration + 's', '(was', job.expectedJobDuration + 's)');
 
   return {
     ...job,
@@ -567,7 +574,6 @@ export function applyDelaysToJob(job: any, delays: JobDelay[]): any {
     return job;  // No delays to apply
   }
 
-  console.log(`⏰ Applying ${delays.length} delays to job ${job.jobNumber}`);
 
   // Sort route steps by order
   const sortedSteps = [...(job.routeSteps || [])].sort((a, b) => a.order - b.order);
@@ -627,7 +633,6 @@ export function applyDelaysToJob(job: any, delays: JobDelay[]): any {
   const originalExpectedJobDuration = job.expectedJobDuration || 0;
   const newExpectedJobDuration = originalExpectedJobDuration + totalDelaySeconds;
 
-  console.log(`  ⏰ Original EJD: ${originalExpectedJobDuration}s, Added delays: ${totalDelaySeconds}s, New EJD: ${newExpectedJobDuration}s`);
 
   // Return modified job
   return {

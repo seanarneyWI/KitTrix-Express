@@ -23,6 +23,7 @@ export interface KittingJobData {
   setup: number; // seconds
   makeReady: number; // seconds
   takeDown: number; // seconds
+  stationCount?: number; // optional for job creation, defaults to 1
   routeSteps: RouteStep[]; // array of route steps with instructions
   executionInterface?: ExecutionInterface; // optional for job creation
 }
@@ -39,6 +40,7 @@ export interface KittingJob {
   setup: number;
   makeReady: number;
   takeDown: number;
+  stationCount: number; // number of planned stations (default: 1)
   routeSteps: RouteStep[];
   expectedKitDuration: number; // EKD - calculated
   expectedJobDuration: number; // EJD - calculated

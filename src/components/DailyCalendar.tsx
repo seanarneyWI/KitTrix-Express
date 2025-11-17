@@ -18,8 +18,14 @@ interface DailyCalendarProps {
   onUnassignJob?: (assignmentId: string) => void;
   onChangeStatus?: (jobId: string, status: string) => void;
   onStartJob?: (jobId: string) => void;
+  onEditStations?: (jobId: string) => void;
+  onEditAllowedShifts?: (jobId: string) => void;
+  onCreateScenarioForJob?: (jobId: string) => void;
+  onEditProductionDelays?: (jobId: string) => void;
+  onCommitYToProduction?: (jobId: string, scenarioId: string) => void;
   densityMode?: 'compact' | 'normal' | 'comfortable';
   activeShifts?: Shift[];
+  allShifts?: Shift[];
 }
 
 const DailyCalendar: React.FC<DailyCalendarProps> = ({
@@ -33,8 +39,14 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
   onUnassignJob,
   onChangeStatus,
   onStartJob,
+  onEditStations,
+  onEditAllowedShifts,
+  onCreateScenarioForJob,
+  onEditProductionDelays,
+  onCommitYToProduction,
   densityMode = 'normal',
   activeShifts = [],
+  allShifts = [],
 }) => {
   const [currentDate, setCurrentDate] = useState(
     initialDate ? new Date(initialDate) : new Date()
@@ -69,9 +81,7 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
 
   const getEventsForDate = (date: string) => {
     const filtered = events.filter(event => event.date === date);
-    console.log(`📆 DailyCalendar filtering for ${date}: Found ${filtered.length} events out of ${events.length} total`);
     if (filtered.length > 0) {
-      console.log('  Events:', filtered.map(e => `${e.id} - ${e.title}`));
     }
     return filtered;
   };
@@ -109,12 +119,10 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
   const handleDragStart = (event: any) => {
     const { active } = event;
     const dragData = active.data.current as DragData;
-    console.log('🎯 DailyCalendar drag start:', { activeId: active.id, dragData });
 
     if (dragData?.type === 'event') {
       const eventToMove = events.find(e => e.id === dragData.eventId);
       if (eventToMove) {
-        console.log('✅ Found event to move:', eventToMove.title);
         setActiveEvent(eventToMove);
       }
     }
@@ -122,7 +130,6 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-    console.log('🎯 DailyCalendar drag end:', {
       activeId: active.id,
       overId: over?.id,
       hasOver: !!over
@@ -130,17 +137,14 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
     setActiveEvent(null);
 
     if (!over) {
-      console.log('❌ No drop target');
       return;
     }
 
     const dragData = active.data.current as DragData;
     const dropData = over.data.current as { date: string; time: string; isInShift?: boolean };
-    console.log('📦 Drag/Drop data:', { dragData, dropData });
 
     // Validate shift hours if shifts are configured
     if (activeShifts && activeShifts.length > 0 && dropData?.isInShift === false) {
-      console.log('⚠️ Drop rejected: Outside active shift hours');
       toast.error('Cannot schedule outside active shift hours', {
         icon: '⏰',
         duration: 3000,
@@ -175,7 +179,6 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
         if (minDistance <= 120) {
           finalTime = nearestShiftStart;
           if (finalTime !== dropData.time) {
-            console.log(`📍 Snapped from ${dropData.time} to shift start ${finalTime}`);
             toast.success(`Job snapped to shift start: ${finalTime}`, {
               icon: '📍',
               duration: 2000,
@@ -184,15 +187,12 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
         }
       }
 
-      console.log('✅ Moving event:', dragData.eventId, 'to', dropData.date, 'at', finalTime);
       onMoveEvent(dragData.eventId, dropData.date, finalTime);
     } else if (dragData?.type === 'resize' && dropData) {
       if (dragData.resizeHandle) {
-        console.log('✅ Resizing event:', dragData.eventId, dragData.resizeHandle, 'to', dropData.time);
         onResizeEvent(dragData.eventId, dragData.resizeHandle, dropData.time);
       }
     } else {
-      console.log('❌ Invalid drag/drop data:', { dragType: dragData?.type, hasDropData: !!dropData });
     }
   };
 
@@ -551,6 +551,12 @@ const DailyCalendar: React.FC<DailyCalendarProps> = ({
                             onUnassignJob={onUnassignJob}
                             onChangeStatus={onChangeStatus}
                             onStartJob={onStartJob}
+                            onEditStations={onEditStations}
+                            onEditAllowedShifts={onEditAllowedShifts}
+                            onCreateScenarioForJob={onCreateScenarioForJob}
+                            onEditProductionDelays={onEditProductionDelays}
+                            onCommitYToProduction={onCommitYToProduction}
+                            allShifts={allShifts}
                           />
                         );
                       });

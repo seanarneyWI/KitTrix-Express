@@ -4,10 +4,11 @@ import { apiUrl } from '../config/api';
 interface AddDelayDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  scenarioId: string;
+  scenarioId?: string | null;  // Optional for production mode
   jobId: string;
   insertAfter: number;
   onDelayAdded: () => void;
+  isProductionMode?: boolean;
 }
 
 const AddDelayDialog: React.FC<AddDelayDialogProps> = ({
@@ -16,7 +17,8 @@ const AddDelayDialog: React.FC<AddDelayDialogProps> = ({
   scenarioId,
   jobId,
   insertAfter,
-  onDelayAdded
+  onDelayAdded,
+  isProductionMode = false
 }) => {
   const [name, setName] = useState('');
   const [hours, setHours] = useState(0);
@@ -42,11 +44,16 @@ const AddDelayDialog: React.FC<AddDelayDialogProps> = ({
     setError(null);
 
     try {
-      const response = await fetch(apiUrl(`/api/scenarios/${scenarioId}/delays`), {
+      // Use different endpoint for production vs scenario delays
+      const url = isProductionMode
+        ? apiUrl(`/api/jobs/${jobId}/delays`)
+        : apiUrl(`/api/scenarios/${scenarioId}/delays`);
+
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          jobId,
+          ...(isProductionMode ? {} : { jobId }),  // jobId only needed for scenario delays
           name: name.trim(),
           duration: totalSeconds,
           insertAfter
@@ -58,7 +65,6 @@ const AddDelayDialog: React.FC<AddDelayDialogProps> = ({
         throw new Error(data.error || 'Failed to create delay');
       }
 
-      console.log(`⏰ Created delay: ${name} (${totalSeconds}s)`);
       onDelayAdded();
       handleClose();
     } catch (err: any) {

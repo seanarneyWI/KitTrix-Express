@@ -50,6 +50,9 @@ model KittingJob {
   makeReady       Int      // seconds
   takeDown        Int      // seconds
 
+  // Station planning
+  stationCount    Int      @default(1) @map("station_count") // Number of planned stations
+
   // Calculated fields
   expectedKitDuration Int // EKD in seconds
   expectedJobDuration Int // EJD in seconds
@@ -340,17 +343,17 @@ model ScenarioChange {
 }
 
 model JobDelay {
-  id           String   @id @default(cuid())
-  scenarioId   String   @map("scenario_id")
-  jobId        String   @map("job_id")
-  name         String   // "Equipment maintenance", "Team meeting", etc.
-  duration     Int      // Duration in seconds
-  insertAfter  Int      @map("insert_after") // Insert delay after this route step order number
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id           String    @id @default(cuid())
+  scenarioId   String?   @map("scenario_id") // NULL = production delay, non-null = scenario-specific delay
+  jobId        String    @map("job_id")
+  name         String    // "Equipment maintenance", "Team meeting", etc.
+  duration     Int       // Duration in seconds
+  insertAfter  Int       @map("insert_after") // Insert delay after this route step order number
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
   // Relations
-  scenario     Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  scenario     Scenario? @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
 
   @@index([scenarioId])
   @@index([jobId])

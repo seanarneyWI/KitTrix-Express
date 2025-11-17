@@ -3,6 +3,7 @@ import { DndContext, DragEndEvent, DragOverlay, PointerSensor, useSensor, useSen
 import { Event, DragData } from '../types/event';
 import ResizableEvent from './ResizableEvent';
 import JobContextMenu from './JobContextMenu';
+import { Shift } from '../utils/shiftScheduling';
 
 interface WeeklyCalendarProps {
   events: Event[];
@@ -15,7 +16,13 @@ interface WeeklyCalendarProps {
   onUnassignJob?: (assignmentId: string) => void;
   onChangeStatus?: (jobId: string, status: string) => void;
   onStartJob?: (jobId: string) => void;
+  onEditStations?: (jobId: string) => void;
+  onEditAllowedShifts?: (jobId: string) => void;
+  onCreateScenarioForJob?: (jobId: string) => void;
+  onEditProductionDelays?: (jobId: string) => void;
+  onCommitYToProduction?: (jobId: string, scenarioId: string) => void;
   densityMode?: 'compact' | 'normal' | 'comfortable';
+  allShifts?: Shift[];
 }
 
 const WeeklyCalendar: React.FC<WeeklyCalendarProps> = ({
@@ -29,7 +36,13 @@ const WeeklyCalendar: React.FC<WeeklyCalendarProps> = ({
   onUnassignJob,
   onChangeStatus,
   onStartJob,
+  onEditStations,
+  onEditAllowedShifts,
+  onCreateScenarioForJob,
+  onEditProductionDelays,
+  onCommitYToProduction,
   densityMode = 'normal',
+  allShifts = [],
 }) => {
   const [currentWeek, setCurrentWeek] = useState(new Date());
   const [activeEvent, setActiveEvent] = useState<Event | null>(null);
@@ -149,25 +162,16 @@ const WeeklyCalendar: React.FC<WeeklyCalendarProps> = ({
   };
 
   const handleEventContextMenu = (e: React.MouseEvent, event: Event) => {
-    console.log('=== WEEKLY CALENDAR CONTEXT MENU DEBUG ===');
-    console.log('Event ID:', event.id);
-    console.log('Event type:', event.type);
-    console.log('Event object:', event);
-    console.log('Mouse event:', e.type, e.button);
-    console.log('Position:', e.clientX, e.clientY);
 
     // Only show context menu for kitting jobs, not regular events
     if (event.type === 'kitting-job') {
-      console.log('✅ This is a kitting job - showing context menu');
       e.preventDefault();
       e.stopPropagation();
       e.nativeEvent.preventDefault();
       e.nativeEvent.stopPropagation();
       setContextMenu({ x: e.clientX, y: e.clientY, event });
-      console.log('Context menu state set:', { x: e.clientX, y: e.clientY, event: event.id });
       return false; // Extra prevention
     } else {
-      console.log('❌ Not a kitting job, event type is:', event.type);
     }
   };
 
@@ -292,7 +296,8 @@ const WeeklyCalendar: React.FC<WeeklyCalendarProps> = ({
 
                       const startInMinutes = startHour * 60 + startMinute;
                       const endInMinutes = endHour * 60 + endMinute;
-                      const durationInMinutes = endInMinutes - startInMinutes;
+                      // Use actualDurationMinutes if available (for multi-day jobs), otherwise calculate from times
+                      const durationInMinutes = event.actualDurationMinutes ?? (endInMinutes - startInMinutes);
 
                       // Calculate pixels per minute based on density mode
                       const slotHeight = getSlotHeight();
@@ -359,6 +364,12 @@ const WeeklyCalendar: React.FC<WeeklyCalendarProps> = ({
           onUnassignJob={onUnassignJob}
           onChangeStatus={onChangeStatus}
           onStartJob={onStartJob}
+          onEditStations={onEditStations}
+          onEditAllowedShifts={onEditAllowedShifts}
+          onCreateScenarioForJob={onCreateScenarioForJob}
+          onEditProductionDelays={onEditProductionDelays}
+          onCommitYToProduction={onCommitYToProduction}
+          allShifts={allShifts}
         />
       )}
     </DndContext>

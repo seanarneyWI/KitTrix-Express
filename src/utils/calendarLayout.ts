@@ -58,7 +58,12 @@ export function calculateEventPositions(
   for (const event of events) {
     const startMinutes = timeToMinutes(event.startTime);
     const endMinutes = timeToMinutes(event.endTime);
-    const durationMinutes = Math.max(endMinutes - startMinutes, minDurationMinutes);
+    // Use actualDurationMinutes if available (for multi-day jobs), otherwise calculate from times
+    const calculatedDuration = endMinutes - startMinutes;
+    const durationMinutes = Math.max(
+      event.actualDurationMinutes ?? calculatedDuration,
+      minDurationMinutes
+    );
 
     // Calculate position relative to the first time slot
     const relativeStartMinutes = startMinutes - firstSlotTime;

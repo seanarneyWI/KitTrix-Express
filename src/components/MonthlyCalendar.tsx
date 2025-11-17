@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { DndContext, DragEndEvent, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable, useDraggable } from '@dnd-kit/core';
 import { Event, DragData } from '../types/event';
 import JobContextMenu from './JobContextMenu';
+import { Shift } from '../utils/shiftScheduling';
 
 interface MonthlyCalendarProps {
   events: Event[];
@@ -14,7 +15,13 @@ interface MonthlyCalendarProps {
   onUnassignJob?: (assignmentId: string) => void;
   onChangeStatus?: (jobId: string, status: string) => void;
   onStartJob?: (jobId: string) => void;
+  onEditStations?: (jobId: string) => void;
+  onEditAllowedShifts?: (jobId: string) => void;
+  onCreateScenarioForJob?: (jobId: string) => void;
+  onEditProductionDelays?: (jobId: string) => void;
+  onCommitYToProduction?: (jobId: string, scenarioId: string) => void;
   densityMode?: 'compact' | 'normal' | 'comfortable';
+  allShifts?: Shift[];
 }
 
 const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
@@ -28,7 +35,13 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
   onUnassignJob,
   onChangeStatus,
   onStartJob,
+  onEditStations,
+  onEditAllowedShifts,
+  onCreateScenarioForJob,
+  onEditProductionDelays,
+  onCommitYToProduction,
   densityMode = 'normal',
+  allShifts = [],
 }) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [activeEvent, setActiveEvent] = useState<Event | null>(null);
@@ -87,8 +100,6 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
   const getEventsForDate = (date: string) => {
     const filtered = events.filter(event => event.date === date);
     if (date === '2025-10-27' && filtered.length > 0) {
-      console.log(`📅 MonthlyCalendar filtering for ${date}: Found ${filtered.length} events`);
-      console.log('  Events:', filtered.map(e => `${e.id} - ${e.title} (${e.date})`));
     }
     return filtered;
   };
@@ -106,12 +117,10 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
   const handleDragStart = (event: any) => {
     const { active } = event;
     const dragData = active.data.current as DragData;
-    console.log('🎯 MonthlyCalendar drag start:', { activeId: active.id, dragData });
 
     if (dragData?.type === 'event') {
       const eventToMove = events.find(e => e.id === dragData.eventId);
       if (eventToMove) {
-        console.log('✅ Found event to move:', eventToMove.title);
         setActiveEvent(eventToMove);
       }
     }
@@ -119,7 +128,6 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-    console.log('🎯 MonthlyCalendar drag end:', {
       activeId: active.id,
       overId: over?.id,
       hasOver: !!over
@@ -127,22 +135,18 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
     setActiveEvent(null);
 
     if (!over) {
-      console.log('❌ No drop target');
       return;
     }
 
     const dragData = active.data.current as DragData;
     const dropData = over.data.current as { date?: string };
-    console.log('📦 Drag/Drop data:', { dragData, dropData });
 
     if (dragData?.type === 'event' && dropData?.date) {
       // Preserve the original start time when moving between days
       const originalEvent = events.find(e => e.id === dragData.eventId);
       const startTime = originalEvent?.startTime || '09:00';
-      console.log('✅ Moving event:', dragData.eventId, 'to', dropData.date, 'at', startTime);
       onMoveEvent(dragData.eventId, dropData.date, startTime);
     } else {
-      console.log('❌ Invalid drag/drop data:', { dragType: dragData?.type, dropDate: dropData?.date });
     }
   };
 
@@ -267,6 +271,12 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
                         onUnassignJob={onUnassignJob}
                         onChangeStatus={onChangeStatus}
                         onStartJob={onStartJob}
+                        onEditStations={onEditStations}
+                        onEditAllowedShifts={onEditAllowedShifts}
+                        onCreateScenarioForJob={onCreateScenarioForJob}
+                        onEditProductionDelays={onEditProductionDelays}
+                        onCommitYToProduction={onCommitYToProduction}
+                        allShifts={allShifts}
                       />
                     ))}
 
@@ -307,14 +317,25 @@ const DraggableEvent: React.FC<{
   onUnassignJob?: (assignmentId: string) => void;
   onChangeStatus?: (jobId: string, status: string) => void;
   onStartJob?: (jobId: string) => void;
-}> = ({ event, onEditEvent, onNavigateToDay, onAssignJob, onUnassignJob, onChangeStatus, onStartJob }) => {
+  onEditStations?: (jobId: string) => void;
+  onEditAllowedShifts?: (jobId: string) => void;
+  onCreateScenarioForJob?: (jobId: string) => void;
+  onEditProductionDelays?: (jobId: string) => void;
+  onCommitYToProduction?: (jobId: string, scenarioId: string) => void;
+  allShifts?: Shift[];
+}> = ({ event, onEditEvent, onNavigateToDay, onAssignJob, onUnassignJob, onChangeStatus, onStartJob, onEditStations, onEditAllowedShifts, onCreateScenarioForJob, onEditProductionDelays, onCommitYToProduction, allShifts }) => {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+
+  // Detect Y scenario overlays
+  const isYScenario = !!event.__yScenario;
 
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: event.id,
     data: {
       type: 'event',
       eventId: event.id,
+      isYScenario: isYScenario,
+      yScenarioId: event.__yScenario,
     } as DragData,
   });
 
@@ -332,30 +353,20 @@ const DraggableEvent: React.FC<{
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
-    console.log('=== MONTHLY CALENDAR CONTEXT MENU DEBUG ===');
-    console.log('Event ID:', event.id);
-    console.log('Event type:', event.type);
-    console.log('Event object:', event);
-    console.log('Mouse event:', e.type, e.button);
-    console.log('Position:', e.clientX, e.clientY);
 
     // Only show context menu for kitting jobs, not regular events
     if (event.type === 'kitting-job') {
-      console.log('✅ This is a kitting job - showing context menu');
       e.preventDefault();
       e.stopPropagation();
       e.nativeEvent.preventDefault();
       e.nativeEvent.stopPropagation();
       setContextMenu({ x: e.clientX, y: e.clientY });
-      console.log('Context menu state set:', { x: e.clientX, y: e.clientY });
       return false; // Extra prevention
     } else {
-      console.log('❌ Not a kitting job, event type is:', event.type);
     }
   };
 
-  // Y Scenario ghost styling (takes precedence over what-if)
-  const isYScenario = !!event.__yScenario;
+  // Detect deleted Y scenarios
   const yScenarioDeleted = event.__yScenarioDeleted;
 
   // Build Y scenario styling classes
@@ -418,6 +429,12 @@ const DraggableEvent: React.FC<{
           onUnassignJob={onUnassignJob}
           onChangeStatus={onChangeStatus}
           onStartJob={onStartJob}
+          onEditStations={onEditStations}
+          onEditAllowedShifts={onEditAllowedShifts}
+          onCreateScenarioForJob={onCreateScenarioForJob}
+          onEditProductionDelays={onEditProductionDelays}
+          onCommitYToProduction={onCommitYToProduction}
+          allShifts={allShifts}
         />
       )}
     </>

@@ -30,6 +30,7 @@ interface JobFormData {
   setup: number;
   makeReady: number;
   takeDown: number;
+  stationCount: number;
   expectedKitDuration: number;
   expectedJobDuration: number;
   status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'PAUSED' | 'CANCELLED';
@@ -57,6 +58,7 @@ const EditJob: React.FC = () => {
     setup: 0,
     makeReady: 0,
     takeDown: 0,
+    stationCount: 1,
     expectedKitDuration: 0,
     expectedJobDuration: 0,
     status: 'SCHEDULED',
@@ -94,6 +96,7 @@ const EditJob: React.FC = () => {
           setup: job.setup || 0,
           makeReady: job.makeReady || 0,
           takeDown: job.takeDown || 0,
+          stationCount: job.stationCount || 1,
           expectedKitDuration: job.expectedKitDuration || 0,
           expectedJobDuration: job.expectedJobDuration || 0,
           status: job.status || 'SCHEDULED',
@@ -149,7 +152,11 @@ const EditJob: React.FC = () => {
 
   const calculateDurations = () => {
     const kitDuration = formData.routeSteps.reduce((sum, step) => sum + step.expectedSeconds, 0);
-    const jobDuration = formData.setup + formData.makeReady + (kitDuration * formData.orderedQuantity) + formData.takeDown;
+    // New formula with station parallelization:
+    // EJD = Setup + MakeReady + Math.ceil((EKD × Qty) ÷ StationCount) + TakeDown
+    const totalKitTime = kitDuration * formData.orderedQuantity;
+    const parallelizedKitTime = Math.ceil(totalKitTime / formData.stationCount);
+    const jobDuration = formData.setup + formData.makeReady + parallelizedKitTime + formData.takeDown;
 
     setFormData(prev => ({
       ...prev,
@@ -160,7 +167,7 @@ const EditJob: React.FC = () => {
 
   useEffect(() => {
     calculateDurations();
-  }, [formData.routeSteps, formData.orderedQuantity, formData.setup, formData.makeReady, formData.takeDown]);
+  }, [formData.routeSteps, formData.orderedQuantity, formData.setup, formData.makeReady, formData.takeDown, formData.stationCount]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -185,7 +192,6 @@ const EditJob: React.FC = () => {
         jobPayload.routeSteps = routeSteps;
       }
 
-      console.log('Submitting job:', { url, method, payload: jobPayload });
 
       const response = await fetch(url, {
         method,
@@ -498,6 +504,60 @@ const EditJob: React.FC = () => {
                     <span className="ml-2 text-gray-900">{formData.expectedJobDuration}s ({formatDuration(formData.expectedJobDuration)})</span>
                   </div>
                 </div>
+              </div>
+            </div>
+
+            {/* Station Planning */}
+            <div className="border-t pt-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">Station Planning</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Configure how many stations will work on this job simultaneously.
+                Each station requires 2 kitters + 0.5 runner (rounded up to whole people).
+                More stations = faster completion, but higher resource requirements.
+              </p>
+
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Number of Stations
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="20"
+                      value={formData.stationCount}
+                      onChange={(e) => handleInputChange('stationCount', parseInt(e.target.value) || 1)}
+                      className="w-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Typical: 1-10 stations</p>
+                  </div>
+
+                  <div className="bg-white border border-gray-300 rounded-md p-3">
+                    <div className="text-sm font-medium text-gray-700 mb-2">Resource Requirements:</div>
+                    <div className="space-y-1 text-sm text-gray-600">
+                      <div className="flex justify-between">
+                        <span>Total People:</span>
+                        <span className="font-medium text-gray-900">{formData.stationCount * 2 + Math.ceil(formData.stationCount * 0.5)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Kitters:</span>
+                        <span className="font-medium text-gray-900">{formData.stationCount * 2}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Runners:</span>
+                        <span className="font-medium text-gray-900">{Math.ceil(formData.stationCount * 0.5)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {formData.stationCount > 1 && (
+                  <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
+                    <strong>ℹ️ Note:</strong> With {formData.stationCount} stations, kit production time will be parallelized,
+                    reducing total job duration. Setup, make-ready, and take-down times remain constant.
+                  </div>
+                )}
               </div>
             </div>
 

@@ -9,9 +9,17 @@ export function calculateExpectedJobDuration(
   orderedQuantity: number,
   setup: number,
   makeReady: number,
-  takeDown: number
+  takeDown: number,
+  stationCount: number = 1
 ): number {
-  return (expectedKitDuration * orderedQuantity) + setup + makeReady + takeDown;
+  // New formula with station parallelization:
+  // EJD = Setup + MakeReady + Math.ceil((EKD × Qty) ÷ StationCount) + TakeDown
+  // - Setup, MakeReady, TakeDown are one-time activities (not parallelized)
+  // - Only kit production time is parallelized across stations
+  // - Math.ceil ensures conservative scheduling
+  const totalKitTime = expectedKitDuration * orderedQuantity;
+  const parallelizedKitTime = Math.ceil(totalKitTime / stationCount);
+  return setup + makeReady + parallelizedKitTime + takeDown;
 }
 
 export function convertRouteStepsToArray(routeSteps: RouteStep[]): RouteStep[] {
@@ -29,7 +37,8 @@ export function createKittingJobFromData(data: KittingJobData): Omit<KittingJob,
     data.orderedQuantity,
     data.setup,
     data.makeReady,
-    data.takeDown
+    data.takeDown,
+    data.stationCount || 1  // Pass stationCount with default of 1
   );
 
   return {
@@ -43,6 +52,7 @@ export function createKittingJobFromData(data: KittingJobData): Omit<KittingJob,
     setup: data.setup,
     makeReady: data.makeReady,
     takeDown: data.takeDown,
+    stationCount: data.stationCount || 1,  // Include stationCount in return
     routeSteps: routeStepsArray,
     expectedKitDuration,
     expectedJobDuration,
