@@ -396,15 +396,6 @@ export function scheduleJobForwardWithConfig(
 ): Date {
   const isDebugJob = debugJobNumber === '2503-RUSH';
 
-  if (isDebugJob) {
-      jobNumber: debugJobNumber,
-      startTime: startTime.toISOString(),
-      durationSeconds,
-      allowedShiftIds,
-      allowedShiftCount: allowedShiftIds.length
-    });
-  }
-
   // Determine which shifts to use
   let shiftsToUse: Shift[];
 
@@ -500,20 +491,7 @@ export function scheduleJobForwardWithConfig(
     }
   }
 
-  if (isDebugJob) {
-      startDate: startTime.toISOString().split('T')[0],
-      endDate: currentTime.toISOString().split('T')[0],
-      totalLoops: loopCount
-    });
-  }
-
   const totalDays = Math.ceil((currentTime.getTime() - startTime.getTime()) / (1000 * 60 * 60 * 24));
-  //   startDate: startTime.toISOString().split('T')[0],
-  //   endDate: currentTime.toISOString().split('T')[0],
-  //   totalDays,
-  //   durationSeconds,
-  //   shiftsUsed: shiftsToUse.length
-  // });
 
   return currentTime;
 }
