@@ -617,8 +617,30 @@ export function useWhatIfMode(productionJobs: KittingJob[]) {
     const overlayJobs: any[] = [];
 
     visibleScenarios.forEach(scenario => {
-      // Apply scenario changes to production jobs
-      let modifiedJobs = [...productionJobs];
+      /**
+       * CRITICAL DATA ISOLATION PRINCIPLE
+       * ===================================
+       * Production jobs and Y scenario overlay jobs MUST remain completely separate.
+       * Any modifications to Y scenarios must NOT affect production data, and vice versa.
+       *
+       * WHY DEEP CLONE IS REQUIRED:
+       * - Shallow copy ([...array]) only copies array references
+       * - Job objects inside array are still SHARED references
+       * - Nested objects/arrays (routeSteps, allowedShiftIds, etc.) are SHARED references
+       * - Modifying nested properties will mutate BOTH production and Y scenario jobs
+       *
+       * CORRECT APPROACH:
+       * - Deep clone production jobs using JSON.parse(JSON.stringify())
+       * - This creates completely independent copies with no shared references
+       * - Changes to Y scenario jobs will never affect production jobs
+       * - Changes to production jobs will never affect Y scenario jobs
+       *
+       * IMPORTANT FOR FUTURE SESSIONS:
+       * If you see bugs where editing a job affects both production and Y scenarios,
+       * or where Y scenario changes leak into production, the cause is ALWAYS
+       * insufficient cloning/copying. Check this line first.
+       */
+      let modifiedJobs = JSON.parse(JSON.stringify(productionJobs));
 
       for (const change of scenario.changes) {
         switch (change.operation) {

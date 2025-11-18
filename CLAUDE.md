@@ -75,6 +75,64 @@ ssh sean@137.184.182.28 "cd ~/KitTrix-Express && git pull && docker-compose up -
 
 ---
 
+## ⚠️ CRITICAL: Data Isolation Principles
+
+### Production vs Y Scenarios - MUST Remain Separate
+
+**THE GOLDEN RULE**: Production jobs and Y scenario overlay jobs are COMPLETELY INDEPENDENT entities.
+- Editing a production job must NEVER affect Y scenario overlays
+- Editing a Y scenario must NEVER affect production jobs
+- Nested object mutations (arrays, objects) are the most common source of bugs
+
+### Root Cause of Cross-Contamination Bugs
+
+**Shallow Copy Problem** (`useWhatIfMode.ts:643`):
+```javascript
+// ❌ WRONG - Creates shared object references
+let modifiedJobs = [...productionJobs];
+
+// ✅ CORRECT - Creates independent copies
+let modifiedJobs = JSON.parse(JSON.stringify(productionJobs));
+```
+
+**Why This Matters**:
+1. `[...array]` only copies the array itself
+2. Objects INSIDE the array are still SHARED references
+3. Nested objects/arrays (routeSteps, allowedShiftIds, etc.) are SHARED
+4. Modifying nested properties mutates BOTH production AND Y scenarios
+
+### How to Prevent Cross-Contamination
+
+**Rule 1**: Always deep clone when creating Y scenario overlays from production
+**Rule 2**: Never directly mutate job objects - always create new copies
+**Rule 3**: If you see bugs where changes affect both entities, check cloning first
+
+### File Locations to Check
+
+If data isolation bugs occur, check these locations IN THIS ORDER:
+
+1. **`src/hooks/useWhatIfMode.ts:643`** - Y overlay creation (deep clone here)
+2. **`src/pages/Dashboard.tsx:728-734`** - Optimistic updates (check for mutations)
+3. **`src/utils/shiftScheduling.ts`** - recalculateJobDuration (ensure it returns new object)
+
+### Symptoms of Insufficient Cloning
+
+- Editing production job's stationCount also changes Y scenario job
+- Editing Y scenario scheduledDate also changes production job
+- Route step changes appear in both production and Y scenarios
+- Delays added to one entity appear in the other
+
+### Fix Applied (November 17, 2025)
+
+**Location**: `src/hooks/useWhatIfMode.ts:643`
+**Change**: Shallow copy → Deep clone
+**Impact**: Production and Y scenarios now completely isolated
+**Documented**: 25 lines of inline comments explaining the principle
+
+**Future Sessions**: If you encounter cross-contamination bugs, this documentation and the inline comments at line 620-642 explain the architecture principle and solution.
+
+---
+
 ## 💻 Development Environment
 
 ### SSH Tunnel (Required for Local Dev)

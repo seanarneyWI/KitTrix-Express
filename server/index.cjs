@@ -214,22 +214,44 @@ app.patch('/api/kitting-jobs/:jobId', async (req, res) => {
       }
     }
 
-    // If stationCount is being updated, recalculate expectedJobDuration
-    if (updateData.stationCount !== undefined) {
+    // If any duration-affecting field is being updated, recalculate expectedJobDuration
+    const durationFieldsChanged = updateData.stationCount !== undefined ||
+                                   updateData.orderedQuantity !== undefined ||
+                                   updateData.setup !== undefined ||
+                                   updateData.makeReady !== undefined ||
+                                   updateData.takeDown !== undefined;
+
+    if (durationFieldsChanged) {
       // Fetch current job data
       const currentJob = await prisma.kittingJob.findUnique({
         where: { id: jobId }
       });
 
       if (currentJob) {
-        // Recalculate expectedJobDuration with new station count
+        // Use updated values if provided, otherwise use current values
+        const stationCount = updateData.stationCount ?? currentJob.station_count;
+        const orderedQuantity = updateData.orderedQuantity ?? currentJob.orderedQuantity;
+        const setup = updateData.setup ?? currentJob.setup;
+        const makeReady = updateData.makeReady ?? currentJob.makeReady;
+        const takeDown = updateData.takeDown ?? currentJob.takeDown;
+        const expectedKitDuration = currentJob.expectedKitDuration; // Only route steps change this
+
+        // Recalculate expectedJobDuration
         // Formula: EJD = Setup + MakeReady + Math.ceil((EKD × Qty) ÷ StationCount) + TakeDown
-        const totalKitTime = currentJob.expectedKitDuration * currentJob.orderedQuantity;
-        const parallelizedKitTime = Math.ceil(totalKitTime / updateData.stationCount);
-        const newExpectedJobDuration = currentJob.setup + currentJob.makeReady + parallelizedKitTime + currentJob.takeDown;
+        const totalKitTime = expectedKitDuration * orderedQuantity;
+        const parallelizedKitTime = Math.ceil(totalKitTime / stationCount);
+        const newExpectedJobDuration = setup + makeReady + parallelizedKitTime + takeDown;
 
         updateData.expectedJobDuration = newExpectedJobDuration;
-        console.log(`🔧 Recalculated job duration for ${currentJob.jobNumber}: ${currentJob.expectedJobDuration}s → ${newExpectedJobDuration}s (${updateData.stationCount} stations)`);
+
+        const changedFields = [];
+        if (updateData.stationCount !== undefined) changedFields.push(`stations:${stationCount}`);
+        if (updateData.orderedQuantity !== undefined) changedFields.push(`qty:${orderedQuantity}`);
+        if (updateData.setup !== undefined) changedFields.push(`setup:${setup}s`);
+        if (updateData.makeReady !== undefined) changedFields.push(`makeReady:${makeReady}s`);
+        if (updateData.takeDown !== undefined) changedFields.push(`takeDown:${takeDown}s`);
+
+        console.log(`🔧 Recalculated job duration for ${currentJob.jobNumber}: ${currentJob.expectedJobDuration}s → ${newExpectedJobDuration}s (${changedFields.join(', ')})`);
       }
     }
 
@@ -1219,6 +1241,37 @@ app.post('/api/route-steps/bulk-update', async (req, res) => {
         kittingJobId: jobId
       }))
     });
+
+    // Recalculate job durations after route step changes
+    const job = await prisma.kittingJob.findUnique({
+      where: { id: jobId },
+      include: { routeSteps: true }
+    });
+
+    if (job) {
+      // Calculate kit duration (sum of all route step times)
+      const expectedKitDuration = job.routeSteps.reduce((sum, step) => sum + step.expectedSeconds, 0);
+
+      // Calculate total time needed for all kits
+      const totalKitTime = expectedKitDuration * job.orderedQuantity;
+
+      // Account for parallel work across multiple stations
+      const parallelizedKitTime = Math.ceil(totalKitTime / job.stationCount);
+
+      // Calculate total job duration including setup and teardown
+      const expectedJobDuration = job.setup + job.makeReady + parallelizedKitTime + job.takeDown;
+
+      // Update the job with recalculated durations
+      await prisma.kittingJob.update({
+        where: { id: jobId },
+        data: {
+          expectedKitDuration,
+          expectedJobDuration
+        }
+      });
+
+      console.log(`🔧 Recalculated durations for ${job.jobNumber}: EKD=${expectedKitDuration}s (${(expectedKitDuration/3600).toFixed(2)}h), EJD=${expectedJobDuration}s (${(expectedJobDuration/3600).toFixed(2)}h)`);
+    }
 
     res.json({ created: createdSteps.count });
   } catch (error) {
